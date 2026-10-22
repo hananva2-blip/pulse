@@ -50,8 +50,17 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: pytest -v
 
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Helm is preinstalled on GitHub-hosted runners
+      - run: helm lint deploy/helm/pulse
+      - name: Validate rendered manifests against the Kubernetes schemas
+        run: helm template pulse deploy/helm/pulse | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary -
+
   image:
-    needs: [lint, test]
+    needs: [lint, test, chart]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

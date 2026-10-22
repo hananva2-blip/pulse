@@ -1,0 +1,71 @@
+{{- $name := printf "%s-api" .Release.Name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "api") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list . "api") | nindent 8 }}
+    spec:
+      securityContext: {{- include "pulse.podSecurity" . | nindent 8 }}
+      containers:
+        - name: api
+          image: {{ include "pulse.image" (list . "api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env: {{- include "pulse.env" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8000 }
+          # Ready only when the database answers; alive as long as the process listens.
+          # A database outage takes the API out of the Service without restart loops.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext: {{- include "pulse.containerSecurity" . | nindent 12 }}
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pulse.labels" . | nindent 4 }}
+    {{- include "pulse.selector" (list . "api") | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list . "api") | nindent 4 }}
+  ports:
+    - { name: http, port: 80, targetPort: http }
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port: { name: http }
+{{- end }}

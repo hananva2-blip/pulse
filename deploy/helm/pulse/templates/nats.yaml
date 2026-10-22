@@ -1,0 +1,52 @@
+{{- $name := printf "%s-nats" .Release.Name }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "nats") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list . "nats") | nindent 8 }}
+    spec:
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image }}
+          # JetStream with file storage on the volume, monitoring endpoint on 8222
+          args: ["-js", "-sd", "/data", "-m", "8222"]
+          ports:
+            - { name: client, containerPort: 4222 }
+            - { name: monitoring, containerPort: 8222 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: monitoring }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: "/healthz?js-enabled-only=true", port: monitoring }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources: {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.nats.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list . "nats") | nindent 4 }}
+  ports:
+    - { name: client, port: 4222, targetPort: client }
+    - { name: monitoring, port: 8222, targetPort: monitoring }

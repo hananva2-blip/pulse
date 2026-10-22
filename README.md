@@ -42,6 +42,32 @@ curl localhost:8800/api/monitors
 
 API docs: http://localhost:8800/docs · NATS monitoring: http://localhost:8222
 
+## Run on Kubernetes (local k3d cluster)
+
+A 3-node cluster (1 server, 2 agents) on Docker. It adds a `k3d-pulse` kube context without
+switching away from the current one.
+
+```bash
+k3d cluster create --config deploy/k3d/cluster.yaml
+helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --create-namespace --wait
+curl localhost:8880/healthz
+```
+
+The chart (`deploy/helm/pulse`) runs the API (2 replicas behind a Traefik ingress), the scheduler,
+the runners (spread over nodes, with a PodDisruptionBudget), Postgres and NATS JetStream as
+StatefulSets with persistent volumes. Pulse pods run as non-root with a read-only root filesystem and
+no Linux capabilities. The API is ready only when the database answers, but its liveness probe only
+checks that the process listens, so a database outage does not cause restart loops. The scheduler
+and runners stop gracefully on SIGTERM.
+
+To try local code before CI has built it, build `:dev` images and import them:
+
+```bash
+for s in api scheduler runner; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
+k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner}:dev
+helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --set image.tag=dev --wait
+```
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -56,9 +82,9 @@ pytest
 ## Roadmap
 
 1. ~~Services, queue and tests in docker-compose~~
-2. CI in GitHub Actions
-3. Terraform (AWS), Ansible, K3s
-4. Helm and ArgoCD
+2. ~~CI: lint, tests, Trivy-gated multi-arch images on GHCR~~
+3. ~~Local Kubernetes (k3d) and the Helm chart~~
+4. ArgoCD (GitOps)
 5. Prometheus, Grafana, Loki, Tempo
 6. KEDA autoscaling, Argo Rollouts canary, quality gates on every PR
-7. Playwright browser checks, alerts, dashboard, domain and HTTPS
+7. Terraform (AWS), Playwright browser checks, alerts, dashboard, domain and HTTPS

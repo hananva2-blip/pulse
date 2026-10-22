@@ -1,0 +1,70 @@
+{{/* The scheduler and the runners share one shape: a worker process with metrics on :9100 */}}
+{{- range $component := list "scheduler" "runner" }}
+{{- $values := index $.Values $component }}
+{{- $name := printf "%s-%s" $.Release.Name $component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ $values.replicas }}
+  selector:
+    matchLabels: {{- include "pulse.selector" (list $ $component) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list $ $component) | nindent 8 }}
+    spec:
+      securityContext: {{- include "pulse.podSecurity" $ | nindent 8 }}
+      {{- if eq $component "runner" }}
+      # Spread runners over the nodes so losing one node keeps checks running
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "pulse.selector" (list $ $component) | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: {{ $component }}
+          image: {{ include "pulse.image" (list $ $component) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          env:
+            {{- include "pulse.env" $ | nindent 12 }}
+            {{- if eq $component "runner" }}
+            - name: BATCH_SIZE
+              value: {{ $values.batchSize | quote }}
+            {{- end }}
+          ports:
+            - { name: metrics, containerPort: 9100 }
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext: {{- include "pulse.containerSecurity" $ | nindent 12 }}
+          resources: {{- toYaml $values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pulse.labels" $ | nindent 4 }}
+    {{- include "pulse.selector" (list $ $component) | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list $ $component) | nindent 4 }}
+  ports:
+    - { name: metrics, port: 9100, targetPort: metrics }
+{{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-runner
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  # Node drains take runners down one at a time, never all of them
+  minAvailable: 1
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "runner") | nindent 6 }}
