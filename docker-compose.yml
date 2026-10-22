@@ -1,0 +1,59 @@
+# Local development stack: docker compose up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pulse"]
+      interval: 3s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]   # JetStream on, monitoring on :8222
+    ports: ["4222:4222", "8222:8222"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 3s
+      retries: 20
+
+  api:
+    build: services/api
+    environment:
+      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse
+    ports: ["8800:8000"]   # 8800 on the host, to stay clear of other local projects on 8000
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 3s
+      retries: 20
+
+  # The API creates the schema, so the scheduler and runners wait for it
+  scheduler:
+    build: services/scheduler
+    environment:
+      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse
+      NATS_URL: nats://nats:4222
+    depends_on:
+      api: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
+  runner:
+    build: services/runner
+    environment:
+      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse
+      NATS_URL: nats://nats:4222
+    deploy:
+      replicas: 2
+    depends_on:
+      api: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
+volumes:
+  pgdata:
