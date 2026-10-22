@@ -1,0 +1,49 @@
+image:
+  registry: ghcr.io/hananva2-blip
+  # Commit SHA of the images built by CI
+  tag: 6344fd673099a745c29c38b564ac57465b6894a1
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+scheduler:
+  # More than one is safe: claims use FOR UPDATE SKIP LOCKED
+  replicas: 1
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+runner:
+  replicas: 2
+  batchSize: 10
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 192Mi }
+
+ingress:
+  enabled: true
+  className: traefik
+  # Empty host matches any host: http://localhost:8880 on the local k3d cluster
+  host: ""
+
+postgres:
+  image: postgres:16-alpine
+  database: pulse
+  user: pulse
+  # Local development only; a later stage moves this to AWS Secrets Manager
+  password: pulse-dev
+  storage: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+nats:
+  image: nats:2.10-alpine
+  storage: 1Gi
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }

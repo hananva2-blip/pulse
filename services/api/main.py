@@ -35,6 +35,8 @@ MONITOR_SUMMARY = """
 async def lifespan(app):
     pool.open()
     with pool.connection() as conn:
+        # Several API replicas start together; the lock makes them apply the schema one at a time
+        conn.execute("SELECT pg_advisory_xact_lock(4242)")
         conn.execute(SCHEMA)
     yield
     pool.close()

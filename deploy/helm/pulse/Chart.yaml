@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pulse
+description: Pulse synthetic monitoring platform (API, scheduler, runners, Postgres, NATS JetStream)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
