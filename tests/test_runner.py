@@ -1,0 +1,55 @@
+import json
+import os
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import httpx
+from psycopg_pool import AsyncConnectionPool
+
+from runner import handle, run_check
+
+JOB = {"monitor_id": 1, "url": "https://example.com", "timeout_seconds": 5, "expected_status": 200}
+
+
+def fake_client(handler):
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+async def test_expected_status_is_up():
+    async with fake_client(lambda request: httpx.Response(200)) as client:
+        result = await run_check(client, JOB)
+
+    assert result["ok"] is True
+    assert result["status_code"] == 200
+    assert isinstance(result["latency_ms"], int)
+    assert result["error"] is None
+
+
+async def test_unexpected_status_is_down():
+    async with fake_client(lambda request: httpx.Response(503)) as client:
+        result = await run_check(client, JOB)
+
+    assert result["ok"] is False
+    assert result["error"] == "Expected 200, got 503"
+
+
+async def test_connection_error_is_down():
+    def refuse(request):
+        raise httpx.ConnectError("connection refused")
+
+    async with fake_client(refuse) as client:
+        result = await run_check(client, JOB)
+
+    assert result == {"ok": False, "status_code": None, "latency_ms": None, "error": "ConnectError"}
+
+
+async def test_handle_stores_result_then_acks(db, monitor):
+    msg = SimpleNamespace(data=json.dumps({**JOB, "monitor_id": monitor["id"]}).encode(), ack=AsyncMock())
+
+    async with (AsyncConnectionPool(os.environ["DATABASE_URL"], min_size=1, max_size=1) as pool,
+                fake_client(lambda request: httpx.Response(200)) as client):
+        await handle(msg, client, pool)
+
+    stored = db.execute("SELECT ok, status_code FROM checks WHERE monitor_id = %s", (monitor["id"],)).fetchall()
+    assert stored == [(True, 200)]
+    msg.ack.assert_awaited_once()
