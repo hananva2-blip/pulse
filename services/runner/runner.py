@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import time
 
 import httpx
@@ -21,6 +22,8 @@ LATENCY = Histogram("pulse_check_latency_seconds", "Response time of checked URL
                     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [runner] %(message)s")
+# httpx logs every request at INFO; the checks are already counted in metrics
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def run_check(client, job):
@@ -54,6 +57,10 @@ async def handle(msg, client, pool):
 
 
 async def main():
+    # Kubernetes sends SIGTERM on shutdown; finish the current batch, then exit
+    stop = asyncio.Event()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
+
     start_http_server(METRICS_PORT)
     nc = await nats.connect(NATS_URL, max_reconnect_attempts=-1)
     js = nc.jetstream()
@@ -65,7 +72,7 @@ async def main():
     async with (AsyncConnectionPool(DATABASE_URL, min_size=1, max_size=BATCH_SIZE) as pool,
                 httpx.AsyncClient(headers=headers) as client):
         logging.info("Waiting for jobs")
-        while True:
+        while not stop.is_set():
             try:
                 msgs = await sub.fetch(BATCH_SIZE, timeout=5)
             except NatsTimeout:
@@ -73,6 +80,11 @@ async def main():
             results = await asyncio.gather(*(handle(m, client, pool) for m in msgs), return_exceptions=True)
             for error in (r for r in results if isinstance(r, Exception)):
                 logging.error("Job failed, it will be redelivered: %s", error)
+
+    # close, not drain: draining a pull subscription waits forever. Jobs fetched but not
+    # acked are redelivered to another runner, so nothing is lost.
+    await nc.close()
+    logging.info("Stopped")
 
 
 if __name__ == "__main__":
