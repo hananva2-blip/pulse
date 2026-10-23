@@ -45,7 +45,7 @@ grafana:
         # A trace_id in a log line becomes a link to the trace in Tempo
         derivedFields:
           - name: trace_id
-            matcherRegex: 'trace_id=(\w+)'
+            matcherRegex: 'trace_id=([0-9a-f]{32})'
             url: "$${__value.raw}"
             datasourceUid: tempo
     - name: Tempo
