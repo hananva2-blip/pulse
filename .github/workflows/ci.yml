@@ -117,8 +117,9 @@ jobs:
       - name: Load test (k6)
         id: k6
         if: success() || steps.e2e.outcome == 'failure'
+        # --user: the k6 image runs as its own user, which cannot write the summary into the checkout
         run: >
-          docker run --rm -i --network host -e PULSE_URL
+          docker run --rm -i --network host -e PULSE_URL --user "$(id -u):$(id -g)"
           -v "$PWD:/out" grafana/k6:1.3.0 run --summary-export=/out/k6-summary.json - < load/api-smoke.js
 
       - name: Logs of the cluster on failure
@@ -141,7 +142,7 @@ jobs:
               const n = (name) => Number((xml.match(new RegExp(`${name}="(\\d+)"`)) || [0, 0])[1]);
               e2e = `${n("tests") - n("failures") - n("errors")} of ${n("tests")} passed`;
             }
-            let k6 = "not run";
+            let k6 = process.env.K6_OUTCOME === "skipped" ? "not run" : "no summary file was written";
             if (fs.existsSync("k6-summary.json")) {
               const m = JSON.parse(fs.readFileSync("k6-summary.json", "utf8")).metrics;
               const ms = (v) => `${Math.round(v)} ms`;
