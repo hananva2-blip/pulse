@@ -6,6 +6,13 @@ image:
 
 api:
   replicas: 2
+  # Share of /api/ requests that fail on purpose (canary demos); 0 in normal operation
+  faultInjectionRate: 0
+  canary:
+    # Used when Argo Rollouts is installed; a plain Deployment otherwise
+    enabled: true
+    maxErrorRate: 0.05
+    prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring:9090
   resources:
     requests: { cpu: 50m, memory: 96Mi }
     limits: { cpu: 500m, memory: 256Mi }

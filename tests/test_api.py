@@ -1,3 +1,6 @@
+import main
+
+
 def test_health(client):
     response = client.get("/healthz")
     assert response.status_code == 200
@@ -59,3 +62,13 @@ def test_delete_monitor(client, db, monitor):
     assert client.get(f"/api/monitors/{monitor['id']}").status_code == 404
     assert db.execute("SELECT count(*) FROM checks").fetchone()[0] == 0
     assert client.delete(f"/api/monitors/{monitor['id']}").status_code == 404
+
+
+def test_fault_injection_fails_api_calls_and_counts_them(client, monkeypatch):
+    monkeypatch.setattr(main, "FAULT_INJECTION_RATE", 1.0)
+
+    assert client.get("/api/monitors").status_code == 500
+    assert client.get("/healthz").status_code == 200  # probes are never faulted
+
+    metrics = client.get("/metrics").text
+    assert 'handler="/api/monitors"' in metrics and 'status="5xx"' in metrics
