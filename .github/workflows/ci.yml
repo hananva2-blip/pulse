@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual runs from the Actions tab, e.g. after a merge whose message skipped CI
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -90,7 +92,7 @@ jobs:
           ${{ env.IMAGE }}:scan
 
       - name: Log in to GHCR
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -99,10 +101,10 @@ jobs:
 
       # amd64 for AWS, arm64 for the local cluster on Apple Silicon
       - uses: docker/setup-qemu-action@v3
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
 
       - name: Push multi-arch image
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: services/${{ matrix.service }}
@@ -116,7 +118,7 @@ jobs:
   # GitOps: Argo CD deploys whatever main says, so CI records the new image tag in Git
   deploy:
     needs: image
-    if: github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
