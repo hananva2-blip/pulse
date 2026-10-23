@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 
 import nats
 from nats.js.api import RetentionPolicy, StreamConfig
@@ -34,6 +35,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(messag
 
 
 async def main():
+    # Kubernetes sends SIGTERM on shutdown; finish the current batch, then exit
+    stop = asyncio.Event()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
+
     start_http_server(METRICS_PORT)
     nc = await nats.connect(NATS_URL, max_reconnect_attempts=-1)
     js = nc.jetstream()
@@ -42,7 +47,7 @@ async def main():
 
     async with AsyncConnectionPool(DATABASE_URL, min_size=1, max_size=2, kwargs={"autocommit": True}) as pool:
         logging.info("Scheduling every %ss", TICK_SECONDS)
-        while True:
+        while not stop.is_set():
             try:
                 async with pool.connection() as conn:
                     rows = await (await conn.execute(CLAIM_DUE)).fetchall()
@@ -58,6 +63,9 @@ async def main():
                 ERRORS.inc()
                 logging.error("Tick failed: %s", exc)
             await asyncio.sleep(TICK_SECONDS)
+
+    await nc.drain()
+    logging.info("Stopped")
 
 
 if __name__ == "__main__":

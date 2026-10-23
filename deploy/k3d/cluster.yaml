@@ -1,0 +1,17 @@
+# Local cluster: k3d cluster create --config deploy/k3d/cluster.yaml
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: pulse
+servers: 1
+agents: 2
+image: rancher/k3s:v1.35.5-k3s1
+ports:
+  # http://localhost:8880 -> Traefik ingress inside the cluster
+  - port: 8880:80
+    nodeFilters: [loadbalancer]
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    # Adds the k3d-pulse context without switching away from the one in use
+    switchCurrentContext: false
