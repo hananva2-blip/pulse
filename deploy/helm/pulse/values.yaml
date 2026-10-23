@@ -47,3 +47,7 @@ nats:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 256Mi }
+
+monitoring:
+  # ServiceMonitors, alert rules and the Grafana dashboard; skipped if the Prometheus Operator is absent
+  enabled: true

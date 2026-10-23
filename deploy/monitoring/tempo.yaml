@@ -1,0 +1,10 @@
+# Tempo single binary; Pulse services send traces over OTLP gRPC to tempo.monitoring:4317
+tempo:
+  retention: 48h
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+persistence:
+  enabled: true
+  size: 2Gi
