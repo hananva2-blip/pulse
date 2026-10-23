@@ -17,3 +17,22 @@ server:
     ingressClassName: traefik
     # *.localhost resolves to 127.0.0.1: http://argocd.localhost:8880
     hostname: argocd.localhost
+
+# The controller and repo server are the busiest Argo CD parts; keep them off the
+# control-plane node so they do not compete with the Kubernetes API server
+controller:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+repoServer:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
