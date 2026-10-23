@@ -50,11 +50,16 @@ spec:
           resources: {{- toYaml .Values.postgres.resources | nindent 12 }}
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
+  # apiVersion, kind and volumeMode are what the API server fills in anyway; writing
+  # them here keeps Argo CD from reporting a permanent diff
   volumeClaimTemplates:
-    - metadata:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
         resources:
           requests:
             storage: {{ .Values.postgres.storage }}

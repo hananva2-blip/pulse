@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pulse
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/hananva2-blip/pulse.git
+    targetRevision: main
+    path: deploy/helm/pulse
+    helm:
+      # Same release name as the earlier helm install, so resource names (and PVCs) stay the same
+      releaseName: pulse
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pulse
+  # The API server adds status.phase to each volumeClaimTemplate; it is runtime state, not config
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[]?.status
+  syncPolicy:
+    automated:
+      # Delete what was removed from Git, and undo changes made by hand in the cluster
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }
