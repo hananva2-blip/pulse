@@ -68,6 +68,35 @@ k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner}:dev
 helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --set image.tag=dev --wait
 ```
 
+## GitOps with Argo CD
+
+The cluster runs what `main` says. Nobody runs `helm upgrade` or `kubectl apply` against the app.
+
+```mermaid
+flowchart LR
+    D[Developer] -->|merge PR| M[main]
+    M -->|push| CI[GitHub Actions]
+    CI -->|multi-arch images| G[(GHCR)]
+    CI -->|commit new image tag<br/>to values.yaml, skip ci| M
+    A[Argo CD] -->|watches| M
+    A -->|sync, prune, self-heal| K[k3d cluster]
+    K -->|pull images| G
+```
+
+```bash
+./deploy/argocd/bootstrap.sh   # installs Argo CD, applies the root app, prints the admin password
+```
+
+- **App of Apps:** `deploy/argocd/root.yaml` is the only manifest applied by hand. It creates every
+  Application in `deploy/argocd/apps/`.
+- **Automatic tag updates:** after CI pushes images from `main`, its `deploy` job rewrites the one
+  `image.tag` line in `values.yaml` and commits it with `[skip ci]`. Argo CD rolls the new images out.
+- **Self-heal:** a manual `kubectl scale` or a deleted Service is reverted within seconds.
+- **No permanent diffs:** the StatefulSets' `volumeClaimTemplates` state the fields the API server
+  would default; only the runtime `status` is ignored.
+
+Argo CD UI: http://argocd.localhost:8880 (user `admin`).
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -84,7 +113,7 @@ pytest
 1. ~~Services, queue and tests in docker-compose~~
 2. ~~CI: lint, tests, Trivy-gated multi-arch images on GHCR~~
 3. ~~Local Kubernetes (k3d) and the Helm chart~~
-4. ArgoCD (GitOps)
+4. ~~Argo CD GitOps with automatic image tag updates~~
 5. Prometheus, Grafana, Loki, Tempo
 6. KEDA autoscaling, Argo Rollouts canary, quality gates on every PR
 7. Terraform (AWS), Playwright browser checks, alerts, dashboard, domain and HTTPS
