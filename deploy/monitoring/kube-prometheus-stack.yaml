@@ -10,6 +10,15 @@ prometheus:
     resources:
       requests: { cpu: 100m, memory: 400Mi }
       limits: { memory: 1Gi }
+    # Keep the heaviest pod off the control-plane node: when it shared the node with the
+    # API server, slow API responses made KEDA lose its leader lease and Tempo fail probes
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
   ingress:
     enabled: true
     ingressClassName: traefik
