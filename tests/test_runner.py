@@ -1,12 +1,14 @@
 import json
+import logging
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
+from opentelemetry.sdk.trace import TracerProvider
 from psycopg_pool import AsyncConnectionPool
 
-from runner import handle, run_check
+from runner import LOG_FORMAT, handle, run_check
 
 JOB = {"monitor_id": 1, "url": "https://example.com", "timeout_seconds": 5, "expected_status": 200}
 
@@ -53,3 +55,12 @@ async def test_handle_stores_result_then_acks(db, monitor):
     stored = db.execute("SELECT ok, status_code FROM checks WHERE monitor_id = %s", (monitor["id"],)).fetchall()
     assert stored == [(True, 200)]
     msg.ack.assert_awaited_once()
+
+
+def test_log_lines_carry_the_trace_id(caplog):
+    # The log format references otelTraceID; a record without it fails to format
+    tracer = TracerProvider().get_tracer("test")
+    with caplog.at_level(logging.INFO), tracer.start_as_current_span("check") as span:
+        logging.info("Checked %s", "https://example.com")
+    expected = format(span.get_span_context().trace_id, "032x")
+    assert logging.Formatter(LOG_FORMAT).format(caplog.records[-1]).endswith(f"trace_id={expected}")

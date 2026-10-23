@@ -31,8 +31,9 @@ LATENCY = Histogram("pulse_check_latency_seconds", "Response time of checked URL
                     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
 
 # Adds otelTraceID to log records, so a log line links to its trace in Grafana
-LoggingInstrumentor().instrument()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [runner] %(message)s trace_id=%(otelTraceID)s")
+LoggingInstrumentor().instrument(inject_trace_context=True)
+LOG_FORMAT = "%(asctime)s [runner] %(message)s trace_id=%(otelTraceID)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 # httpx logs every request at INFO; the checks are already counted in metrics
 logging.getLogger("httpx").setLevel(logging.WARNING)
 tracer = trace.get_tracer("pulse.runner")

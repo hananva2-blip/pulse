@@ -39,7 +39,7 @@ JOBS = Counter("pulse_jobs_scheduled_total", "Check jobs published to the queue"
 ERRORS = Counter("pulse_scheduler_errors_total", "Scheduler loop failures")
 
 # Adds otelTraceID to log records, so a log line links to its trace in Grafana
-LoggingInstrumentor().instrument()
+LoggingInstrumentor().instrument(inject_trace_context=True)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s trace_id=%(otelTraceID)s")
 tracer = trace.get_tracer("pulse.scheduler")
 
