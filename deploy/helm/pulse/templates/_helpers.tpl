@@ -30,6 +30,16 @@ capabilities:
   drop: [ALL]
 {{- end }}
 
+{{/* OpenTelemetry settings for one component: include "pulse.tracingEnv" (list . "api") */}}
+{{- define "pulse.tracingEnv" -}}
+{{- with (index . 0).Values.tracing.endpoint }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ . | quote }}
+- name: OTEL_SERVICE_NAME
+  value: pulse-{{ index $ 1 }}
+{{- end }}
+{{- end }}
+
 {{- define "pulse.env" -}}
 - name: DATABASE_URL
   valueFrom:

@@ -1,0 +1,68 @@
+{{/* Rendered only when the Prometheus Operator CRDs exist (kube-prometheus-stack installed) */}}
+{{- if and .Values.monitoring.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+{{- range $component, $port := dict "api" "http" "scheduler" "metrics" "runner" "metrics" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $.Release.Name }}-{{ $component }}
+  labels: {{- include "pulse.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "pulse.selector" (list $ $component) | nindent 6 }}
+  endpoints:
+    - port: {{ $port }}
+      interval: 15s
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pulse
+      rules:
+        - alert: PulseRunnersDown
+          expr: sum(up{namespace="{{ .Release.Namespace }}", job="{{ .Release.Name }}-runner"}) == 0
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: No runner is up, so no checks are running
+        - alert: PulseChecksStuck
+          # Jobs are being scheduled but none is executed: the queue or the runners are stuck
+          expr: >
+            sum(rate(pulse_jobs_scheduled_total{namespace="{{ .Release.Namespace }}"}[10m])) > 0
+            and sum(rate(pulse_checks_total{namespace="{{ .Release.Namespace }}"}[10m])) == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: Checks are scheduled but not executed
+        - alert: PulseSchedulerErrors
+          expr: increase(pulse_scheduler_errors_total{namespace="{{ .Release.Namespace }}"}[5m]) > 0
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: The scheduler loop keeps failing
+        - alert: PulseApiErrors
+          expr: >
+            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", status="5xx"}[5m]))
+            / sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0.05
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: More than 5% of API requests fail
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dashboard
+  labels:
+    {{- include "pulse.labels" . | nindent 4 }}
+    # The Grafana sidecar loads every ConfigMap with this label
+    grafana_dashboard: "1"
+data:
+  pulse.json: |-
+    {{- .Files.Get "dashboards/pulse.json" | nindent 4 }}
+{{- end }}
