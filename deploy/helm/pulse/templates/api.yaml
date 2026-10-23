@@ -17,7 +17,9 @@ spec:
         - name: api
           image: {{ include "pulse.image" (list . "api") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          env: {{- include "pulse.env" . | nindent 12 }}
+          env:
+            {{- include "pulse.env" . | nindent 12 }}
+            {{- include "pulse.tracingEnv" (list . "api") | nindent 12 }}
           ports:
             - { name: http, containerPort: 8000 }
           # Ready only when the database answers; alive as long as the process listens.

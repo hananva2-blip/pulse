@@ -6,6 +6,13 @@ import signal
 
 import nats
 from nats.js.api import RetentionPolicy, StreamConfig
+from opentelemetry import propagate, trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import SpanKind
 from prometheus_client import Counter, start_http_server
 from psycopg_pool import AsyncConnectionPool
 
@@ -31,7 +38,20 @@ CLAIM_DUE = """
 JOBS = Counter("pulse_jobs_scheduled_total", "Check jobs published to the queue")
 ERRORS = Counter("pulse_scheduler_errors_total", "Scheduler loop failures")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s")
+# Adds otelTraceID to log records, so a log line links to its trace in Grafana
+LoggingInstrumentor().instrument()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [scheduler] %(message)s trace_id=%(otelTraceID)s")
+tracer = trace.get_tracer("pulse.scheduler")
+
+
+def setup_tracing():
+    """Send traces to Tempo when OTEL_EXPORTER_OTLP_ENDPOINT is set (in Kubernetes); a no-op otherwise.
+    The service name comes from OTEL_SERVICE_NAME."""
+    if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    provider = TracerProvider(resource=Resource.create())
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
 
 
 async def main():
@@ -39,6 +59,7 @@ async def main():
     stop = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
 
+    setup_tracing()
     start_http_server(METRICS_PORT)
     nc = await nats.connect(NATS_URL, max_reconnect_attempts=-1)
     js = nc.jetstream()
@@ -54,7 +75,12 @@ async def main():
                 for monitor_id, url, timeout, expected_status in rows:
                     job = {"monitor_id": monitor_id, "url": url,
                            "timeout_seconds": timeout, "expected_status": expected_status}
-                    await js.publish("checks.http", json.dumps(job).encode())
+                    # One trace per check; its context travels to the runner in the message headers
+                    with tracer.start_as_current_span("schedule check", kind=SpanKind.PRODUCER,
+                                                      attributes={"pulse.monitor_id": monitor_id, "url.full": url}):
+                        headers = {}
+                        propagate.inject(headers)
+                        await js.publish("checks.http", json.dumps(job).encode(), headers=headers)
                 if rows:
                     JOBS.inc(len(rows))
                     logging.info("Published %d jobs", len(rows))
@@ -65,6 +91,8 @@ async def main():
             await asyncio.sleep(TICK_SECONDS)
 
     await nc.drain()
+    # Flush spans that are still buffered
+    getattr(trace.get_tracer_provider(), "shutdown", lambda: None)()
     logging.info("Stopped")
 
 

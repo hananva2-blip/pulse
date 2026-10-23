@@ -3,3 +3,8 @@ httpx==0.28.1
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
 prometheus-client==0.26.0
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
+opentelemetry-instrumentation-logging==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1
+opentelemetry-instrumentation-psycopg==0.66b1

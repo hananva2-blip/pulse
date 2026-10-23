@@ -51,3 +51,7 @@ nats:
 monitoring:
   # ServiceMonitors, alert rules and the Grafana dashboard; skipped if the Prometheus Operator is absent
   enabled: true
+
+tracing:
+  # OTLP gRPC endpoint of Tempo; leave empty to turn tracing off
+  endpoint: http://tempo.monitoring:4317

@@ -9,6 +9,15 @@ import httpx
 import nats
 from nats.errors import TimeoutError as NatsTimeout
 from nats.js.api import RetentionPolicy, StreamConfig
+from opentelemetry import propagate, trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from prometheus_client import Counter, Histogram, start_http_server
 from psycopg_pool import AsyncConnectionPool
 
@@ -21,9 +30,25 @@ CHECKS = Counter("pulse_checks_total", "Checks run", ["result"])
 LATENCY = Histogram("pulse_check_latency_seconds", "Response time of checked URLs",
                     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [runner] %(message)s")
+# Adds otelTraceID to log records, so a log line links to its trace in Grafana
+LoggingInstrumentor().instrument()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [runner] %(message)s trace_id=%(otelTraceID)s")
 # httpx logs every request at INFO; the checks are already counted in metrics
 logging.getLogger("httpx").setLevel(logging.WARNING)
+tracer = trace.get_tracer("pulse.runner")
+
+
+def setup_tracing():
+    """Send traces to Tempo when OTEL_EXPORTER_OTLP_ENDPOINT is set (in Kubernetes); a no-op otherwise.
+    The service name comes from OTEL_SERVICE_NAME."""
+    if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    provider = TracerProvider(resource=Resource.create())
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    # The check request and the result insert become child spans of "run check"
+    HTTPXClientInstrumentor().instrument()
+    PsycopgInstrumentor().instrument()
 
 
 async def run_check(client, job):
@@ -42,14 +67,22 @@ async def run_check(client, job):
 
 async def handle(msg, client, pool):
     job = json.loads(msg.data)
-    result = await run_check(client, job)
-    async with pool.connection() as conn:
-        await conn.execute(
-            "INSERT INTO checks (monitor_id, ok, status_code, latency_ms, error) VALUES (%s, %s, %s, %s, %s)",
-            (job["monitor_id"], result["ok"], result["status_code"], result["latency_ms"], result["error"]),
-        )
-    # Ack only after the result is stored, so a crash means the job is redelivered
-    await msg.ack()
+    # Continue the trace the scheduler started for this check
+    parent = propagate.extract(getattr(msg, "headers", None) or {})
+    attributes = {"pulse.monitor_id": job["monitor_id"], "url.full": job["url"]}
+    span_options = {"context": parent, "kind": SpanKind.CONSUMER, "attributes": attributes}
+    with tracer.start_as_current_span("run check", **span_options) as span:
+        result = await run_check(client, job)
+        if not result["ok"]:
+            span.set_status(Status(StatusCode.ERROR, result["error"]))
+        async with pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO checks (monitor_id, ok, status_code, latency_ms, error) VALUES (%s, %s, %s, %s, %s)",
+                (job["monitor_id"], result["ok"], result["status_code"], result["latency_ms"], result["error"]),
+            )
+        # Ack only after the result is stored, so a crash means the job is redelivered
+        await msg.ack()
+        logging.info("Checked %s: %s", job["url"], "up" if result["ok"] else f"down ({result['error']})")
 
     CHECKS.labels(result="up" if result["ok"] else "down").inc()
     if result["latency_ms"] is not None:
@@ -61,6 +94,7 @@ async def main():
     stop = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
 
+    setup_tracing()
     start_http_server(METRICS_PORT)
     nc = await nats.connect(NATS_URL, max_reconnect_attempts=-1)
     js = nc.jetstream()
@@ -84,6 +118,8 @@ async def main():
     # close, not drain: draining a pull subscription waits forever. Jobs fetched but not
     # acked are redelivered to another runner, so nothing is lost.
     await nc.close()
+    # Flush spans that are still buffered
+    getattr(trace.get_tracer_provider(), "shutdown", lambda: None)()
     logging.info("Stopped")
 
 
