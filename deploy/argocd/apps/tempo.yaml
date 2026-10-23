@@ -4,6 +4,8 @@ metadata:
   name: tempo
   namespace: argocd
   annotations:
+    # Diff with a server-side dry run, so defaults the API server adds (e.g. CRD defaults) are not drift
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
     argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default

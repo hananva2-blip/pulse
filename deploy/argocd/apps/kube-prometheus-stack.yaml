@@ -4,6 +4,8 @@ metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
+    # Diff with a server-side dry run, so defaults the API server adds (e.g. CRD defaults) are not drift
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
     # Wave -1: the Prometheus Operator CRDs exist before apps that ship ServiceMonitors
     argocd.argoproj.io/sync-wave: "-1"
 spec:
