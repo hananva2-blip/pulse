@@ -112,3 +112,24 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
           cache-from: type=gha,scope=${{ matrix.service }}
+
+  # GitOps: Argo CD deploys whatever main says, so CI records the new image tag in Git
+  deploy:
+    needs: image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the chart at the new images
+        run: |
+          sed -i -E "s/^(  tag: )[0-9a-f]{40}$/\1${GITHUB_SHA}/" deploy/helm/pulse/values.yaml
+          git diff --exit-code --quiet && { echo "Tag already current"; exit 0; }
+          # Exactly one line may change; anything else means the file layout moved
+          test "$(git diff --numstat -- deploy/helm/pulse/values.yaml | awk '{print $1}')" = 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(deploy): images ${GITHUB_SHA::7} [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
