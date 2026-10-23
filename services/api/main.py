@@ -1,8 +1,10 @@
 import os
+import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -17,6 +19,8 @@ from pydantic import BaseModel, Field, HttpUrl
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://pulse:pulse@localhost:5432/pulse")
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
+# Chaos switch for canary demos: this share of /api/ calls fails with 500. 0 in normal operation.
+FAULT_INJECTION_RATE = float(os.getenv("FAULT_INJECTION_RATE", "0"))
 
 
 def setup_tracing(app):
@@ -63,6 +67,16 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Pulse API", lifespan=lifespan)
+
+
+# Registered before the Prometheus instrumentator, so injected 500s are counted in the metrics
+@app.middleware("http")
+async def inject_faults(request: Request, call_next):
+    if FAULT_INJECTION_RATE and request.url.path.startswith("/api/") and random.random() < FAULT_INJECTION_RATE:
+        return JSONResponse({"detail": "Injected fault"}, status_code=500)
+    return await call_next(request)
+
+
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
 setup_tracing(app)
 

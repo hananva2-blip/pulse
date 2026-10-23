@@ -1,11 +1,34 @@
 {{- $name := printf "%s-api" .Release.Name }}
+{{- /* An explicit switch, not CRD detection: Argo CD did not report its own argoproj.io kinds to Helm */}}
+{{- $canary := .Values.api.canary.enabled }}
+{{- if $canary }}
+# A canary release: new versions get half the pods first and are kept only if their error rate stays low
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+{{- else }}
 apiVersion: apps/v1
 kind: Deployment
+{{- end }}
 metadata:
   name: {{ $name }}
   labels: {{- include "pulse.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.api.replicas }}
+  {{- if $canary }}
+  strategy:
+    canary:
+      steps:
+        - setWeight: 50
+        # Let the canary serve traffic long enough for Prometheus to have rates
+        - pause: { duration: 30s }
+        - analysis:
+            templates:
+              - templateName: {{ $name }}-error-rate
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+  {{- end }}
   selector:
     matchLabels: {{- include "pulse.selector" (list . "api") | nindent 6 }}
   template:
@@ -20,6 +43,10 @@ spec:
           env:
             {{- include "pulse.env" . | nindent 12 }}
             {{- include "pulse.tracingEnv" (list . "api") | nindent 12 }}
+            {{- with .Values.api.faultInjectionRate }}
+            - name: FAULT_INJECTION_RATE
+              value: {{ . | quote }}
+            {{- end }}
           ports:
             - { name: http, containerPort: 8000 }
           # Ready only when the database answers; alive as long as the process listens.
@@ -49,6 +76,34 @@ spec:
   selector: {{- include "pulse.selector" (list . "api") | nindent 4 }}
   ports:
     - { name: http, port: 80, targetPort: http }
+{{- if $canary }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $name }}-error-rate
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: error-rate
+      interval: 20s
+      count: 4
+      # One bad measurement is enough to abort and roll back
+      failureLimit: 0
+      # Share of the canary pods' requests that ended in 5xx. With no requests at all the
+      # query is empty, which counts as a pass: there is nothing to judge yet.
+      successCondition: len(result) == 0 || result[0] < {{ .Values.api.canary.maxErrorRate }}
+      provider:
+        prometheus:
+          address: {{ .Values.api.canary.prometheusAddress }}
+          query: >
+            (sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", status="5xx",
+              pod=~"{{ $name }}-{{ "{{args.canary-hash}}" }}-.*"}[1m])) or vector(0))
+            / sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",
+              pod=~"{{ $name }}-{{ "{{args.canary-hash}}" }}-.*"}[1m]))
+{{- end }}
 {{- if .Values.ingress.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

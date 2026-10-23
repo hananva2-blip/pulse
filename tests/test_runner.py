@@ -8,7 +8,7 @@ import httpx
 from opentelemetry.sdk.trace import TracerProvider
 from psycopg_pool import AsyncConnectionPool
 
-from runner import LOG_FORMAT, handle, run_check
+from runner import LOG_FORMAT, MAX_DELIVERIES, give_up_or_retry, handle, run_check
 
 JOB = {"monitor_id": 1, "url": "https://example.com", "timeout_seconds": 5, "expected_status": 200}
 
@@ -64,3 +64,25 @@ def test_log_lines_carry_the_trace_id(caplog):
         logging.info("Checked %s", "https://example.com")
     expected = format(span.get_span_context().trace_id, "032x")
     assert logging.Formatter(LOG_FORMAT).format(caplog.records[-1]).endswith(f"trace_id={expected}")
+
+
+async def test_job_of_a_deleted_monitor_is_dropped(db):
+    # monitor_id 999999 does not exist: the monitor was deleted while the job was queued
+    msg = SimpleNamespace(data=json.dumps({**JOB, "monitor_id": 999999}).encode(), ack=AsyncMock())
+
+    async with (AsyncConnectionPool(os.environ["DATABASE_URL"], min_size=1, max_size=1) as pool,
+                fake_client(lambda request: httpx.Response(200)) as client):
+        await handle(msg, client, pool)
+
+    msg.ack.assert_awaited_once()  # acked, so it is not redelivered forever
+    assert db.execute("SELECT count(*) FROM checks").fetchone()[0] == 0
+
+
+async def test_failing_job_is_retried_then_dropped():
+    retry = SimpleNamespace(metadata=SimpleNamespace(num_delivered=1), term=AsyncMock())
+    await give_up_or_retry(retry, RuntimeError("database down"))
+    retry.term.assert_not_awaited()
+
+    poison = SimpleNamespace(metadata=SimpleNamespace(num_delivered=MAX_DELIVERIES), term=AsyncMock())
+    await give_up_or_retry(poison, RuntimeError("database down"))
+    poison.term.assert_awaited_once()

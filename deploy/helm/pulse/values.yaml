@@ -6,6 +6,13 @@ image:
 
 api:
   replicas: 2
+  # Share of /api/ requests that fail on purpose (canary demos); 0 in normal operation
+  faultInjectionRate: 0
+  canary:
+    # Requires Argo Rollouts in the cluster; false renders a plain Deployment
+    enabled: true
+    maxErrorRate: 0.05
+    prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring:9090
   resources:
     requests: { cpu: 50m, memory: 96Mi }
     limits: { cpu: 500m, memory: 256Mi }
@@ -18,8 +25,16 @@ scheduler:
     limits: { cpu: 200m, memory: 128Mi }
 
 runner:
+  # Used only when KEDA is not installed
   replicas: 2
   batchSize: 10
+  autoscaling:
+    # Scale on the backlog of the NATS consumer the runners share
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    # Target number of waiting jobs per runner
+    lagThreshold: 20
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 192Mi }
@@ -55,3 +70,9 @@ monitoring:
 tracing:
   # OTLP gRPC endpoint of Tempo; leave empty to turn tracing off
   endpoint: http://tempo.monitoring:4317
+
+testTarget:
+  # A small HTTP test server inside the cluster (/status/500, /delay/2, ...), so load tests
+  # and end-to-end tests do not depend on sites on the internet
+  enabled: true
+  image: mccutchen/go-httpbin:v2.15.0

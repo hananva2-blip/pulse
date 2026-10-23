@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keda
+  namespace: argocd
+  annotations:
+    # Diff with a server-side dry run, so defaults the API server adds (e.g. CRD defaults) are not drift
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+    # Wave -1: the ScaledObject CRD exists before the Pulse chart renders one
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://kedacore.github.io/charts
+    chart: keda
+    targetRevision: 2.21.0
+    helm:
+      releaseName: keda
+      valuesObject:
+        resources:
+          operator: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 256Mi } }
+          metricServer: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 256Mi } }
+          webhooks: { requests: { cpu: 20m, memory: 32Mi }, limits: { memory: 128Mi } }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

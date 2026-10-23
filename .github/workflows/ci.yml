@@ -59,7 +59,118 @@ jobs:
       # Helm is preinstalled on GitHub-hosted runners
       - run: helm lint deploy/helm/pulse
       - name: Validate rendered manifests against the Kubernetes schemas
-        run: helm template pulse deploy/helm/pulse | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary -
+        run: >
+          helm template pulse deploy/helm/pulse |
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary
+          -schema-location default
+          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -
+
+  # Quality gates on every PR: deploy the PR's code to a throwaway cluster and test the whole system
+  quality-gates:
+    needs: [lint, test, chart]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      PULSE_URL: http://localhost:8080
+      TEST_TARGET: http://pulse-httpbin.pulse
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create a kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: pulse
+
+      - name: Build the images and load them into kind
+        run: |
+          for s in api scheduler runner; do
+            docker build -q -t ghcr.io/${{ github.repository_owner }}/pulse-$s:pr services/$s
+            kind load docker-image ghcr.io/${{ github.repository_owner }}/pulse-$s:pr --name pulse
+          done
+
+      # No Prometheus, KEDA or Argo Rollouts here: the chart falls back to plain Deployments
+      - name: Deploy Pulse with Helm
+        run: >
+          helm install pulse deploy/helm/pulse -n pulse --create-namespace
+          --set image.tag=pr --set ingress.enabled=false --set tracing.endpoint=
+          --set api.canary.enabled=false
+          --wait --timeout 5m
+
+      - name: Reach the API
+        run: |
+          kubectl -n pulse port-forward svc/pulse-api 8080:80 > port-forward.log 2>&1 &
+          curl -fsS --retry 20 --retry-delay 1 --retry-all-errors "$PULSE_URL/healthz"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: End-to-end tests (Playwright)
+        id: e2e
+        run: |
+          pip install -q -r requirements-e2e.txt
+          pytest e2e -v --junitxml=e2e-results.xml
+
+      - name: Load test (k6)
+        id: k6
+        if: success() || steps.e2e.outcome == 'failure'
+        # --user: the k6 image runs as its own user, which cannot write the summary into the checkout
+        run: >
+          docker run --rm -i --network host -e PULSE_URL --user "$(id -u):$(id -g)"
+          -v "$PWD:/out" grafana/k6:1.3.0 run --summary-export=/out/k6-summary.json - < load/api-smoke.js
+
+      - name: Logs of the cluster on failure
+        if: failure()
+        run: kubectl -n pulse get pods && kubectl -n pulse logs -l app.kubernetes.io/part-of=pulse --tail=50 --prefix
+
+      - name: Report on the pull request
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          E2E_OUTCOME: ${{ steps.e2e.outcome }}
+          K6_OUTCOME: ${{ steps.k6.outcome }}
+        with:
+          script: |
+            const fs = require("fs");
+            const icon = (outcome) => ({ success: "✅", failure: "❌" }[outcome] || "⏭️");
+            let e2e = "not run";
+            if (fs.existsSync("e2e-results.xml")) {
+              const xml = fs.readFileSync("e2e-results.xml", "utf8");
+              const n = (name) => Number((xml.match(new RegExp(`${name}="(\\d+)"`)) || [0, 0])[1]);
+              e2e = `${n("tests") - n("failures") - n("errors")} of ${n("tests")} passed`;
+            }
+            let k6 = process.env.K6_OUTCOME === "skipped" ? "not run" : "no summary file was written";
+            if (fs.existsSync("k6-summary.json")) {
+              const m = JSON.parse(fs.readFileSync("k6-summary.json", "utf8")).metrics;
+              const ms = (v) => `${Math.round(v)} ms`;
+              k6 = `list p95 ${ms(m["http_req_duration{name:list}"]["p(95)"])} (limit 300), ` +
+                   `get p95 ${ms(m["http_req_duration{name:get}"]["p(95)"])} (limit 200), ` +
+                   `failed ${(m.http_req_failed.value * 100).toFixed(2)}% (limit 1%), ` +
+                   `${Math.round(m.http_reqs.rate)} req/s`;
+            }
+            const marker = "<!-- pulse-quality-gates -->";
+            const body = [
+              marker,
+              "### Quality gates",
+              "| Gate | Result | Details |",
+              "|---|---|---|",
+              `| End-to-end (Playwright) | ${icon(process.env.E2E_OUTCOME)} | ${e2e} |`,
+              `| Load (k6) | ${icon(process.env.K6_OUTCOME)} | ${k6} |`,
+              "",
+              `Pulse deployed with Helm to a kind cluster from \`${context.payload.pull_request.head.sha.slice(0, 7)}\`.`,
+            ].join("\n");
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const previous = comments.find((c) => c.body.startsWith(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
 
   image:
     needs: [lint, test, chart]
