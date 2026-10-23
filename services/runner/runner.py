@@ -7,7 +7,6 @@ import time
 
 import httpx
 import nats
-from nats.errors import TimeoutError as NatsTimeout
 from nats.js.api import RetentionPolicy, StreamConfig
 from opentelemetry import propagate, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -19,12 +18,15 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode
 from prometheus_client import Counter, Histogram, start_http_server
+from psycopg.errors import ForeignKeyViolation
 from psycopg_pool import AsyncConnectionPool
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://pulse:pulse@localhost:5432/pulse")
 NATS_URL = os.getenv("NATS_URL", "nats://localhost:4222")
 METRICS_PORT = int(os.getenv("METRICS_PORT", 9100))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 10))
+# A job that keeps failing is dropped after this many deliveries, so it cannot block the queue
+MAX_DELIVERIES = 5
 
 CHECKS = Counter("pulse_checks_total", "Checks run", ["result"])
 LATENCY = Histogram("pulse_check_latency_seconds", "Response time of checked URLs",
@@ -76,11 +78,17 @@ async def handle(msg, client, pool):
         result = await run_check(client, job)
         if not result["ok"]:
             span.set_status(Status(StatusCode.ERROR, result["error"]))
-        async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO checks (monitor_id, ok, status_code, latency_ms, error) VALUES (%s, %s, %s, %s, %s)",
-                (job["monitor_id"], result["ok"], result["status_code"], result["latency_ms"], result["error"]),
-            )
+        try:
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO checks (monitor_id, ok, status_code, latency_ms, error) VALUES (%s, %s, %s, %s, %s)",
+                    (job["monitor_id"], result["ok"], result["status_code"], result["latency_ms"], result["error"]),
+                )
+        except ForeignKeyViolation:
+            # The monitor was deleted while this job waited in the queue: nothing to record
+            await msg.ack()
+            logging.info("Monitor %s was deleted; dropped its queued job", job["monitor_id"])
+            return
         # Ack only after the result is stored, so a crash means the job is redelivered
         await msg.ack()
         logging.info("Checked %s: %s", job["url"], "up" if result["ok"] else f"down ({result['error']})")
@@ -88,6 +96,15 @@ async def handle(msg, client, pool):
     CHECKS.labels(result="up" if result["ok"] else "down").inc()
     if result["latency_ms"] is not None:
         LATENCY.observe(result["latency_ms"] / 1000)
+
+
+async def give_up_or_retry(msg, error):
+    """A failed job is redelivered, unless it already failed MAX_DELIVERIES times."""
+    if msg.metadata.num_delivered >= MAX_DELIVERIES:
+        await msg.term()
+        logging.error("Job failed %d times, dropping it: %s", MAX_DELIVERIES, error)
+    else:
+        logging.error("Job failed, it will be redelivered: %s", error)
 
 
 async def main():
@@ -110,11 +127,13 @@ async def main():
         while not stop.is_set():
             try:
                 msgs = await sub.fetch(BATCH_SIZE, timeout=5)
-            except NatsTimeout:
+            except TimeoutError:
+                # No jobs. nats-py raises either its own TimeoutError or asyncio's; both are TimeoutError.
                 continue
             results = await asyncio.gather(*(handle(m, client, pool) for m in msgs), return_exceptions=True)
-            for error in (r for r in results if isinstance(r, Exception)):
-                logging.error("Job failed, it will be redelivered: %s", error)
+            for msg, error in zip(msgs, results, strict=True):
+                if isinstance(error, Exception):
+                    await give_up_or_retry(msg, error)
 
     # close, not drain: draining a pull subscription waits forever. Jobs fetched but not
     # acked are redelivered to another runner, so nothing is lost.
