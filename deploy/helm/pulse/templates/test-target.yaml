@@ -1,0 +1,38 @@
+{{- if .Values.testTarget.enabled }}
+{{- $name := printf "%s-httpbin" .Release.Name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "httpbin") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list . "httpbin") | nindent 8 }}
+    spec:
+      securityContext: {{- include "pulse.podSecurity" . | nindent 8 }}
+      containers:
+        - name: httpbin
+          image: {{ .Values.testTarget.image }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /status/200, port: http }
+          securityContext: {{- include "pulse.containerSecurity" . | nindent 12 }}
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }
+            limits: { cpu: 500m, memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list . "httpbin") | nindent 4 }}
+  ports:
+    - { name: http, port: 80, targetPort: http }
+{{- end }}
