@@ -3,6 +3,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_fastapi_instrumentator import Instrumentator
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -10,6 +17,19 @@ from pydantic import BaseModel, Field, HttpUrl
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://pulse:pulse@localhost:5432/pulse")
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
+
+
+def setup_tracing(app):
+    """Send traces to Tempo when OTEL_EXPORTER_OTLP_ENDPOINT is set (in Kubernetes); a no-op otherwise.
+    The service name comes from OTEL_SERVICE_NAME."""
+    if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    provider = TracerProvider(resource=Resource.create())
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    # Probes and scrapes would drown the traces that matter
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="healthz,metrics")
+    PsycopgInstrumentor().instrument()
 
 pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=False, kwargs={"row_factory": dict_row})
 
@@ -44,6 +64,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Pulse API", lifespan=lifespan)
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
+setup_tracing(app)
 
 
 class MonitorIn(BaseModel):

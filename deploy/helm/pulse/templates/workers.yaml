@@ -32,6 +32,7 @@ spec:
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           env:
             {{- include "pulse.env" $ | nindent 12 }}
+            {{- include "pulse.tracingEnv" (list $ $component) | nindent 12 }}
             {{- if eq $component "runner" }}
             - name: BATCH_SIZE
               value: {{ $values.batchSize | quote }}
