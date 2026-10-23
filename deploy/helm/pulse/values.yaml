@@ -9,7 +9,7 @@ api:
   # Share of /api/ requests that fail on purpose (canary demos); 0 in normal operation
   faultInjectionRate: 0
   canary:
-    # Used when Argo Rollouts is installed; a plain Deployment otherwise
+    # Requires Argo Rollouts in the cluster; false renders a plain Deployment
     enabled: true
     maxErrorRate: 0.05
     prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring:9090

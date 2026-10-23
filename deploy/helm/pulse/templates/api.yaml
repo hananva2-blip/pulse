@@ -1,5 +1,6 @@
 {{- $name := printf "%s-api" .Release.Name }}
-{{- $canary := and .Values.api.canary.enabled (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Rollout") }}
+{{- /* An explicit switch, not CRD detection: Argo CD did not report its own argoproj.io kinds to Helm */}}
+{{- $canary := .Values.api.canary.enabled }}
 {{- if $canary }}
 # A canary release: new versions get half the pods first and are kept only if their error rate stays low
 apiVersion: argoproj.io/v1alpha1
