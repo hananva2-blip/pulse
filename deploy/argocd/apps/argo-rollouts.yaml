@@ -4,6 +4,8 @@ metadata:
   name: argo-rollouts
   namespace: argocd
   annotations:
+    # Diff with a server-side dry run, so defaults the API server adds (e.g. CRD defaults) are not drift
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
     # Wave -1: the Rollout CRD exists before the Pulse chart renders one
     argocd.argoproj.io/sync-wave: "-1"
 spec:
