@@ -138,6 +138,42 @@ On macOS with Rancher Desktop, k3d's kubelets share one VM kernel and run out of
 which breaks log collection ("too many open files"). Raise the limits in the VM:
 `fs.inotify.max_user_instances=512`, `fs.inotify.max_user_watches=524288`.
 
+## Autoscaling, canary releases and quality gates
+
+**KEDA scales the runners on the queue backlog.** A `ScaledObject` watches how many jobs wait in
+the `http-runners` NATS consumer and targets 20 waiting jobs per runner, between 2 and 8 replicas.
+With 300 monitors pointed at a slow endpoint, the runners went from 2 to 8 in about 30 seconds,
+and back to 2 about a minute after the queue drained. The runner Deployment leaves `replicas` out
+when KEDA owns it, otherwise Argo CD self-heal would undo every scale-up.
+
+The load test also found two runner bugs, now fixed and covered by tests: jobs of deleted monitors
+were redelivered forever (they are now dropped, and any job is terminated after 5 failed deliveries),
+and a timeout from the NATS client crashed runners under load.
+
+**Argo Rollouts releases the API as a canary.** A new version gets half the pods, waits 30 seconds,
+then an `AnalysisTemplate` reads the 5xx rate of the canary pods only from Prometheus:
+
+| Release | Canary error rate | Outcome |
+|---|---|---|
+| Faulty (`api.faultInjectionRate=0.5`) | 51.6% | Aborted automatically; the stable version kept serving |
+| Healthy | 0%, 0%, 0%, 0% | Promoted to all pods |
+
+`FAULT_INJECTION_RATE` is a deliberate chaos switch for this demo; it is registered before the
+Prometheus middleware so the injected 500s are counted. The canary is on with
+`api.canary.enabled=true` (it needs Argo Rollouts in the cluster).
+
+**Every PR runs quality gates** (`quality-gates` job in CI): the PR's images are built and loaded into
+a throwaway kind cluster, the chart is installed, Playwright end-to-end tests (`e2e/`) drive the whole
+pipeline (API → scheduler → NATS → runner → Postgres) against an in-cluster test server, and a k6
+load test (`load/api-smoke.js`) fails the PR if p95 latency or the error rate cross their thresholds.
+The results are posted as a comment on the PR.
+
+```bash
+pip install -r requirements-e2e.txt
+PULSE_URL=http://localhost:8880 TEST_TARGET=http://pulse-httpbin.pulse pytest e2e
+docker run --rm -i -e PULSE_URL=http://host.docker.internal:8880 grafana/k6:1.3.0 run - < load/api-smoke.js
+```
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -156,5 +192,5 @@ pytest
 3. ~~Local Kubernetes (k3d) and the Helm chart~~
 4. ~~Argo CD GitOps with automatic image tag updates~~
 5. ~~Prometheus, Grafana, Loki, Tempo: metrics, logs, traces across the queue, alerts, dashboard~~
-6. KEDA autoscaling, Argo Rollouts canary, quality gates on every PR
+6. ~~KEDA autoscaling, Argo Rollouts canary with automatic rollback, quality gates on every PR~~
 7. Terraform (AWS), Playwright browser checks, alerts, dashboard, domain and HTTPS
