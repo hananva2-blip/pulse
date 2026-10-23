@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  # The chart comes from its Helm repo at a pinned version; the values come from this Git repo
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: alloy
+      targetRevision: 1.14.2
+      helm:
+        releaseName: alloy
+        valueFiles:
+          - $values/deploy/monitoring/alloy.yaml
+    - repoURL: https://github.com/hananva2-blip/pulse.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Large CRDs exceed the annotation size limit of client-side apply
+      - ServerSideApply=true

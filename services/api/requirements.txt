@@ -3,3 +3,7 @@ uvicorn==0.54.0
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
 prometheus-fastapi-instrumentator==8.1.0
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
+opentelemetry-instrumentation-fastapi==0.66b1
+opentelemetry-instrumentation-psycopg==0.66b1

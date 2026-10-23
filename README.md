@@ -97,6 +97,47 @@ flowchart LR
 
 Argo CD UI: http://argocd.localhost:8880 (user `admin`).
 
+## Observability
+
+Metrics, logs and traces, all deployed by Argo CD from `deploy/argocd/apps/` with values in
+`deploy/monitoring/`.
+
+| Pillar | Stack | What Pulse sends |
+|---|---|---|
+| Metrics | Prometheus (kube-prometheus-stack) | ServiceMonitors for the API (`/metrics`), scheduler and runners (`:9100`): checks by result, check latency, jobs scheduled, API requests and latency |
+| Logs | Loki, collected by Grafana Alloy | Every pod's output; runner and scheduler lines end in `trace_id=<id>` |
+| Traces | Tempo, over OpenTelemetry (OTLP) | One trace per check: `schedule check` (scheduler) → `run check` (runner) → the HTTP check and the result insert |
+
+**A trace crosses the queue.** The scheduler injects the trace context into the NATS message
+headers; the runner extracts it and continues the same trace:
+
+```
+- [pulse-scheduler] schedule check      1ms
+  - [pulse-runner]  run check           7ms  ERROR
+    - [pulse-runner] GET                6ms  ERROR
+    - [pulse-runner] INSERT             1ms
+```
+
+In Grafana, a `trace_id` in a log line links to its trace in Tempo, and a trace links back to its
+logs. The **Pulse** dashboard (`deploy/helm/pulse/dashboards/pulse.json`, provisioned from a
+ConfigMap) shows checks, the scheduling pipeline, the API and the pods, with logs underneath.
+
+**Alerts** (`PrometheusRule` in the chart): `PulseRunnersDown`, `PulseChecksStuck` (jobs scheduled but
+none executed), `PulseSchedulerErrors`, `PulseApiErrors`.
+
+| UI | URL |
+|---|---|
+| Grafana | http://grafana.localhost:8880 (`admin` / `pulse-dev`, local only) |
+| Prometheus | http://prometheus.localhost:8880 |
+| Alertmanager | http://alertmanager.localhost:8880 |
+
+Tracing is on only where `OTEL_EXPORTER_OTLP_ENDPOINT` is set; the chart sets it from
+`tracing.endpoint`. docker-compose and the tests run without it.
+
+On macOS with Rancher Desktop, k3d's kubelets share one VM kernel and run out of inotify instances,
+which breaks log collection ("too many open files"). Raise the limits in the VM:
+`fs.inotify.max_user_instances=512`, `fs.inotify.max_user_watches=524288`.
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -114,6 +155,6 @@ pytest
 2. ~~CI: lint, tests, Trivy-gated multi-arch images on GHCR~~
 3. ~~Local Kubernetes (k3d) and the Helm chart~~
 4. ~~Argo CD GitOps with automatic image tag updates~~
-5. Prometheus, Grafana, Loki, Tempo
+5. ~~Prometheus, Grafana, Loki, Tempo: metrics, logs, traces across the queue, alerts, dashboard~~
 6. KEDA autoscaling, Argo Rollouts canary, quality gates on every PR
 7. Terraform (AWS), Playwright browser checks, alerts, dashboard, domain and HTTPS
