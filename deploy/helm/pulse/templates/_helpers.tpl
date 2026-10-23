@@ -40,6 +40,11 @@ capabilities:
 {{- end }}
 {{- end }}
 
+{{/* KEDA owns the runner replica count when it is installed and autoscaling is on */}}
+{{- define "pulse.runnerAutoscaled" -}}
+{{- if and .Values.runner.autoscaling.enabled (.Capabilities.APIVersions.Has "keda.sh/v1alpha1/ScaledObject") }}true{{ end }}
+{{- end }}
+
 {{- define "pulse.env" -}}
 - name: DATABASE_URL
   valueFrom:

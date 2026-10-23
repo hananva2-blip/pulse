@@ -1,0 +1,29 @@
+{{- if include "pulse.runnerAutoscaled" . }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Release.Name }}-runner
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ .Release.Name }}-runner
+  minReplicaCount: {{ .Values.runner.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.runner.autoscaling.maxReplicas }}
+  pollingInterval: 10
+  cooldownPeriod: 60
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        # Scale down slowly so a short lull does not drop runners that are needed again
+        scaleDown:
+          stabilizationWindowSeconds: 60
+  triggers:
+    # Number of jobs waiting in the consumer that all runners pull from
+    - type: nats-jetstream
+      metadata:
+        natsServerMonitoringEndpoint: {{ .Release.Name }}-nats.{{ .Release.Namespace }}.svc.cluster.local:8222
+        account: "$G"
+        stream: CHECKS
+        consumer: http-runners
+        lagThreshold: {{ .Values.runner.autoscaling.lagThreshold | quote }}
+{{- end }}
