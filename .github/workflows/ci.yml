@@ -50,6 +50,8 @@ jobs:
           cache: pip
           cache-dependency-path: "**/requirements*.txt"
       - run: pip install -r requirements-dev.txt
+      # The browser-runner tests drive a real headless Chromium
+      - run: python -m playwright install --with-deps chromium
       - run: pytest -v
 
   chart:
@@ -86,7 +88,7 @@ jobs:
 
       - name: Build the images and load them into kind
         run: |
-          for s in api scheduler runner; do
+          for s in api scheduler runner browser-runner; do
             docker build -q -t ghcr.io/${{ github.repository_owner }}/pulse-$s:pr services/$s
             kind load docker-image ghcr.io/${{ github.repository_owner }}/pulse-$s:pr --name pulse
           done
@@ -178,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, scheduler, runner]
+        service: [api, scheduler, runner, browser-runner]
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/pulse-${{ matrix.service }}
     steps:

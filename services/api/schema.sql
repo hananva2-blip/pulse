@@ -23,3 +23,9 @@ CREATE TABLE IF NOT EXISTS checks (
 
 CREATE INDEX IF NOT EXISTS checks_monitor_time ON checks (monitor_id, checked_at DESC);
 CREATE INDEX IF NOT EXISTS monitors_due ON monitors (next_run_at) WHERE enabled;
+
+-- Browser checks. ALTER ... IF NOT EXISTS upgrades databases created before them.
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'http' CHECK (kind IN ('http', 'browser'));
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS steps JSONB NOT NULL DEFAULT '[]';
+-- A JPEG of the page, kept only when a browser check fails
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS screenshot BYTEA;

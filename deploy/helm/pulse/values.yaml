@@ -39,6 +39,22 @@ runner:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 192Mi }
 
+browserRunner:
+  # Runs browser monitors in headless Chromium (Playwright)
+  enabled: true
+  # Used only when KEDA is not installed
+  replicas: 1
+  # Pages open at a time per runner; each one is a Chromium tab
+  batchSize: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    lagThreshold: 4
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
 ingress:
   enabled: true
   className: traefik
