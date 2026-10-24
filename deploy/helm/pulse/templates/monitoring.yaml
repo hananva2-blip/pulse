@@ -1,6 +1,6 @@
 {{/* Rendered only when the Prometheus Operator CRDs exist (kube-prometheus-stack installed) */}}
 {{- if and .Values.monitoring.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
-{{- range $component, $port := dict "api" "http" "scheduler" "metrics" "runner" "metrics" }}
+{{- range $component, $port := dict "api" "http" "scheduler" "metrics" "runner" "metrics" "browser-runner" "metrics" }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

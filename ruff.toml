@@ -5,4 +5,4 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP"]
 
 [lint.isort]
-known-first-party = ["main", "scheduler", "runner"]
+known-first-party = ["main", "scheduler", "runner", "browser_runner"]

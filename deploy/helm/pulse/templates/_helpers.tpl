@@ -40,9 +40,11 @@ capabilities:
 {{- end }}
 {{- end }}
 
-{{/* KEDA owns the runner replica count when it is installed and autoscaling is on */}}
-{{- define "pulse.runnerAutoscaled" -}}
-{{- if and .Values.runner.autoscaling.enabled (.Capabilities.APIVersions.Has "keda.sh/v1alpha1/ScaledObject") }}true{{ end }}
+{{/* KEDA owns a runner's replica count when it is installed and that runner's autoscaling is on:
+     include "pulse.autoscaled" (list . .Values.runner) */}}
+{{- define "pulse.autoscaled" -}}
+{{- $values := index . 1 }}
+{{- if and $values.autoscaling $values.autoscaling.enabled ((index . 0).Capabilities.APIVersions.Has "keda.sh/v1alpha1/ScaledObject") }}true{{ end }}
 {{- end }}
 
 {{- define "pulse.env" -}}

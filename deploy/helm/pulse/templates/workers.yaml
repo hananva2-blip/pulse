@@ -9,7 +9,7 @@ metadata:
   name: {{ $name }}
   labels: {{- include "pulse.labels" $ | nindent 4 }}
 spec:
-  {{- if not (and (eq $component "runner") (include "pulse.runnerAutoscaled" $)) }}
+  {{- if not (include "pulse.autoscaled" (list $ $values)) }}
   # Omitted when KEDA scales the runners; otherwise Argo CD would reset every scale-up
   replicas: {{ $values.replicas }}
   {{- end }}
