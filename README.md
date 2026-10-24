@@ -63,8 +63,8 @@ and runners stop gracefully on SIGTERM.
 To try local code before CI has built it, build `:dev` images and import them:
 
 ```bash
-for s in api scheduler runner; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
-k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner}:dev
+for s in api scheduler runner browser-runner; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
+k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner,browser-runner}:dev
 helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --set image.tag=dev --wait
 ```
 
@@ -91,6 +91,7 @@ flowchart LR
   Application in `deploy/argocd/apps/`.
 - **Automatic tag updates:** after CI pushes images from `main`, its `deploy` job rewrites the one
   `image.tag` line in `values.yaml` and commits it with `[skip ci]`. Argo CD rolls the new images out.
+  A change that touches only `deploy/` builds no images, so it redeploys nothing but what it changed.
 - **Self-heal:** a manual `kubectl scale` or a deleted Service is reverted within seconds.
 - **No permanent diffs:** the StatefulSets' `volumeClaimTemplates` state the fields the API server
   would default; only the runtime `status` is ignored.
