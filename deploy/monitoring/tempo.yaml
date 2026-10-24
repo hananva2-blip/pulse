@@ -4,8 +4,14 @@ tempo:
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 768Mi }
-  # /ready stays 503 while Tempo replays its WAL after a restart; probing it for liveness
-  # killed Tempo mid-replay in a loop. Liveness only checks the process is up.
+  # The chart's default 1 GiB ballast is bigger than the 768Mi limit: Tempo sat at the limit and spent
+  # its CPU on garbage collection. GOMEMLIMIT makes the Go GC work harder before the limit instead.
+  memBallastSizeMbs: 0
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: 600MiB
+  # /ready can stay 503 for a while after a start; probing it for liveness restarted Tempo
+  # before it got there. Liveness only checks the process is up; readiness still uses /ready.
   livenessProbe:
     httpGet: null
     tcpSocket: { port: 3200 }
