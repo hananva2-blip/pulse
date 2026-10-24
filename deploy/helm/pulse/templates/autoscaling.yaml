@@ -1,14 +1,19 @@
-{{- if include "pulse.runnerAutoscaled" . }}
+{{/* One ScaledObject per runner kind, each scaling on the backlog of its own NATS consumer */}}
+{{- $runners := dict "runner" (dict "values" .Values.runner "consumer" "http-runners")
+                     "browser-runner" (dict "values" .Values.browserRunner "consumer" "browser-runners") }}
+{{- range $component, $r := $runners }}
+{{- if include "pulse.autoscaled" (list $ $r.values) }}
+---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ .Release.Name }}-runner
-  labels: {{- include "pulse.labels" . | nindent 4 }}
+  name: {{ $.Release.Name }}-{{ $component }}
+  labels: {{- include "pulse.labels" $ | nindent 4 }}
 spec:
   scaleTargetRef:
-    name: {{ .Release.Name }}-runner
-  minReplicaCount: {{ .Values.runner.autoscaling.minReplicas }}
-  maxReplicaCount: {{ .Values.runner.autoscaling.maxReplicas }}
+    name: {{ $.Release.Name }}-{{ $component }}
+  minReplicaCount: {{ $r.values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ $r.values.autoscaling.maxReplicas }}
   pollingInterval: 10
   cooldownPeriod: 60
   advanced:
@@ -18,12 +23,13 @@ spec:
         scaleDown:
           stabilizationWindowSeconds: 60
   triggers:
-    # Number of jobs waiting in the consumer that all runners pull from
+    # Number of jobs waiting in the consumer this runner kind pulls from
     - type: nats-jetstream
       metadata:
-        natsServerMonitoringEndpoint: {{ .Release.Name }}-nats.{{ .Release.Namespace }}.svc.cluster.local:8222
+        natsServerMonitoringEndpoint: {{ $.Release.Name }}-nats.{{ $.Release.Namespace }}.svc.cluster.local:8222
         account: "$G"
         stream: CHECKS
-        consumer: http-runners
-        lagThreshold: {{ .Values.runner.autoscaling.lagThreshold | quote }}
+        consumer: {{ $r.consumer }}
+        lagThreshold: {{ $r.values.autoscaling.lagThreshold | quote }}
+{{- end }}
 {{- end }}

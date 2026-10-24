@@ -89,3 +89,27 @@ def test_deleted_monitor_is_gone(api, monitor):
 
     assert api.delete(f"/api/monitors/{created['id']}").status == 204
     assert api.get(f"/api/monitors/{created['id']}").status == 404
+
+
+def test_browser_monitor_finds_the_text(api, monitor):
+    created = monitor("/html", kind="browser", steps=[{"action": "expect_text", "value": "Moby-Dick"}])
+
+    check = first_check(api, created["id"], timeout=90)
+
+    assert check["ok"] is True, check["error"]
+    assert check["has_screenshot"] is False
+
+
+def test_browser_monitor_failure_keeps_a_screenshot(api, monitor):
+    steps = [{"action": "expect_text", "value": "Not on this page"}]
+    created = monitor("/html", kind="browser", steps=steps, timeout_seconds=3)
+
+    check = first_check(api, created["id"], timeout=90)
+
+    assert check["ok"] is False
+    assert check["error"].startswith("Step 1 (expect_text) failed")
+    assert check["has_screenshot"] is True
+    screenshot = api.get(f"/api/checks/{check['id']}/screenshot")
+    assert screenshot.status == 200
+    assert screenshot.headers["content-type"] == "image/jpeg"
+    assert screenshot.body()[:2] == b"\xff\xd8"

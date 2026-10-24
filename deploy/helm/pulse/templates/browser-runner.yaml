@@ -1,0 +1,61 @@
+{{- if .Values.browserRunner.enabled }}
+{{- $name := printf "%s-browser-runner" .Release.Name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  {{- if not (include "pulse.autoscaled" (list . .Values.browserRunner)) }}
+  replicas: {{ .Values.browserRunner.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "browser-runner") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list . "browser-runner") | nindent 8 }}
+    spec:
+      # The Playwright image runs as pwuser (uid 1001), not the uid 1000 of the other services
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: browser-runner
+          image: {{ include "pulse.image" (list . "browser-runner") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "pulse.env" . | nindent 12 }}
+            {{- include "pulse.tracingEnv" (list . "browser-runner") | nindent 12 }}
+            - name: BATCH_SIZE
+              value: {{ .Values.browserRunner.batchSize | quote }}
+            # Chromium writes its profile under HOME; the root filesystem is read-only
+            - name: HOME
+              value: /tmp
+          ports:
+            - { name: metrics, containerPort: 9100 }
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          securityContext: {{- include "pulse.containerSecurity" . | nindent 12 }}
+          resources: {{- toYaml .Values.browserRunner.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pulse.labels" . | nindent 4 }}
+    {{- include "pulse.selector" (list . "browser-runner") | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list . "browser-runner") | nindent 4 }}
+  ports:
+    - { name: metrics, port: 9100, targetPort: metrics }
+{{- end }}

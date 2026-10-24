@@ -32,7 +32,7 @@ CLAIM_DUE = """
         LIMIT 500
         FOR UPDATE SKIP LOCKED
     )
-    RETURNING id, url, timeout_seconds, expected_status
+    RETURNING id, kind, url, steps, timeout_seconds, expected_status
 """
 
 JOBS = Counter("pulse_jobs_scheduled_total", "Check jobs published to the queue")
@@ -72,15 +72,16 @@ async def main():
             try:
                 async with pool.connection() as conn:
                     rows = await (await conn.execute(CLAIM_DUE)).fetchall()
-                for monitor_id, url, timeout, expected_status in rows:
-                    job = {"monitor_id": monitor_id, "url": url,
+                for monitor_id, kind, url, steps, timeout, expected_status in rows:
+                    job = {"monitor_id": monitor_id, "url": url, "steps": steps,
                            "timeout_seconds": timeout, "expected_status": expected_status}
                     # One trace per check; its context travels to the runner in the message headers
                     with tracer.start_as_current_span("schedule check", kind=SpanKind.PRODUCER,
                                                       attributes={"pulse.monitor_id": monitor_id, "url.full": url}):
                         headers = {}
                         propagate.inject(headers)
-                        await js.publish("checks.http", json.dumps(job).encode(), headers=headers)
+                        # checks.http or checks.browser: each kind has its own runners
+                        await js.publish(f"checks.{kind}", json.dumps(job).encode(), headers=headers)
                 if rows:
                     JOBS.inc(len(rows))
                     logging.info("Published %d jobs", len(rows))

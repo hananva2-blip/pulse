@@ -72,3 +72,50 @@ def test_fault_injection_fails_api_calls_and_counts_them(client, monkeypatch):
 
     metrics = client.get("/metrics").text
     assert 'handler="/api/monitors"' in metrics and 'status="5xx"' in metrics
+
+
+def test_create_browser_monitor_with_steps(client):
+    body = {
+        "name": "Login flow",
+        "url": "https://example.com/login",
+        "kind": "browser",
+        "steps": [
+            {"action": "fill", "selector": "#email", "value": "qa@example.com"},
+            {"action": "click", "selector": "button[type=submit]"},
+            {"action": "expect_text", "value": "Welcome"},
+        ],
+    }
+    response = client.post("/api/monitors", json=body)
+
+    assert response.status_code == 201
+    created = response.json()
+    assert created["kind"] == "browser"
+    assert created["steps"][1] == {"action": "click", "selector": "button[type=submit]"}
+
+
+def test_rejects_invalid_steps(client):
+    base = {"name": "Bad", "url": "https://example.com", "kind": "browser"}
+    no_selector = {**base, "steps": [{"action": "click"}]}
+    no_value = {**base, "steps": [{"action": "expect_text"}]}
+    unknown = {**base, "steps": [{"action": "hover", "selector": "a"}]}
+    steps_on_http = {**base, "kind": "http", "steps": [{"action": "expect_text", "value": "x"}]}
+
+    for body in (no_selector, no_value, unknown, steps_on_http):
+        assert client.post("/api/monitors", json=body).status_code == 422, body
+
+
+def test_screenshot_of_a_failed_check(client, db, monitor):
+    jpeg = b"\xff\xd8fake-jpeg-bytes"
+    with_shot = db.execute("INSERT INTO checks (monitor_id, ok, screenshot) VALUES (%s, false, %s) RETURNING id",
+                           (monitor["id"], jpeg)).fetchone()[0]
+    without = db.execute("INSERT INTO checks (monitor_id, ok) VALUES (%s, true) RETURNING id",
+                         (monitor["id"],)).fetchone()[0]
+
+    response = client.get(f"/api/checks/{with_shot}/screenshot")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content == jpeg
+    assert client.get(f"/api/checks/{without}/screenshot").status_code == 404
+
+    flags = {c["id"]: c["has_screenshot"] for c in client.get(f"/api/monitors/{monitor['id']}/checks").json()}
+    assert flags == {with_shot: True, without: False}
