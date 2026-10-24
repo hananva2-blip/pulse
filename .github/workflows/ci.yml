@@ -17,6 +17,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Images change only with the code: a change that touches nothing but deploy/ skips building and redeploying them
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.diff.outputs.images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # No base to compare with (a manual run, a new branch): build to be safe
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "images=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          outside_deploy=$(git diff --name-only "$BASE" "$GITHUB_SHA" | grep -v '^deploy/' || true)
+          echo "images=$([ -n "$outside_deploy" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -175,7 +196,9 @@ jobs:
             }
 
   image:
-    needs: [lint, test, chart]
+    needs: [changes, lint, test, chart]
+    # When it is skipped, deploy (which needs it) is skipped too, so the tag in values.yaml stays as it is
+    if: needs.changes.outputs.images == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
