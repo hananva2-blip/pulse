@@ -4,6 +4,15 @@ tempo:
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 768Mi }
+  # /ready stays 503 while Tempo replays its WAL after a restart; probing it for liveness
+  # killed Tempo mid-replay in a loop. Liveness only checks the process is up.
+  livenessProbe:
+    httpGet: null
+    tcpSocket: { port: 3200 }
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 6
 
 persistence:
   enabled: true
