@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pulse</title>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="dashboard.js"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">Pulse</a>
+    <nav aria-label="Pages"><a href="/" aria-current="page">Monitors</a><a href="/status">Status page</a></nav>
+  </header>
+  <main>
+    <p class="banner" id="offline" role="alert" hidden></p>
+
+    <section class="summary" id="summary" aria-label="Summary"></section>
+
+    <section id="incidents-section" hidden>
+      <h2>Open incidents</h2>
+      <ul class="incidents" id="incidents"></ul>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Monitors</h2>
+        <span class="muted" id="updated"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="monitors">
+          <thead>
+            <tr><th>Status</th><th>Name</th><th>Type</th><th class="num">Uptime 24h</th><th class="num">p95</th><th>Last check</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="no-monitors" hidden>No monitors yet. Add the first one below.</p>
+    </section>
+
+    <section>
+      <h2>Add a monitor</h2>
+      <form id="add" class="form">
+        <label>Name <input id="name" name="name" required maxlength="100" placeholder="Shop homepage"></label>
+        <label>URL <input id="url" name="url" type="url" required placeholder="https://example.com"></label>
+        <label>Type
+          <select id="kind" name="kind">
+            <option value="http">HTTP status</option>
+            <option value="browser">Browser: find text on the page</option>
+          </select>
+        </label>
+        <label id="text-field" hidden>Text to find <input id="text" name="text" placeholder="Add to cart"></label>
+        <label id="status-field">Expected status <input id="expected" name="expected_status" type="number" min="100" max="599" value="200"></label>
+        <label>Check every
+          <select id="interval" name="interval_seconds">
+            <option value="10">10 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="60" selected>1 minute</option>
+            <option value="300">5 minutes</option>
+          </select>
+        </label>
+        <button type="submit">Add monitor</button>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

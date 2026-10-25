@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Status · Pulse</title>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="status.js"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">Pulse</a>
+    <nav aria-label="Pages"><a href="/">Monitors</a><a href="/status" aria-current="page">Status page</a></nav>
+  </header>
+  <main class="narrow">
+    <p class="banner" id="offline" role="alert" hidden></p>
+
+    <p class="status-banner loading" id="overall" aria-live="polite">Checking…</p>
+
+    <section>
+      <h2>Services</h2>
+      <ul class="services" id="services"></ul>
+    </section>
+
+    <section>
+      <h2>Incident history</h2>
+      <ul class="incidents" id="history"></ul>
+      <p class="empty" id="no-history" hidden>No incidents so far.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -109,7 +109,7 @@ jobs:
 
       - name: Build the images and load them into kind
         run: |
-          for s in api scheduler runner browser-runner notifier; do
+          for s in api scheduler runner browser-runner notifier web; do
             docker build -q -t ghcr.io/${{ github.repository_owner }}/pulse-$s:pr services/$s
             kind load docker-image ghcr.io/${{ github.repository_owner }}/pulse-$s:pr --name pulse
           done
@@ -122,9 +122,10 @@ jobs:
           --set api.canary.enabled=false
           --wait --timeout 5m
 
-      - name: Reach the API
+      # Through the web service, as users reach it: it serves the pages and forwards /api
+      - name: Reach Pulse
         run: |
-          kubectl -n pulse port-forward svc/pulse-api 8080:80 > port-forward.log 2>&1 &
+          kubectl -n pulse port-forward svc/pulse-web 8080:80 > port-forward.log 2>&1 &
           curl -fsS --retry 20 --retry-delay 1 --retry-all-errors "$PULSE_URL/healthz"
 
       - uses: actions/setup-python@v5
@@ -135,6 +136,7 @@ jobs:
         id: e2e
         run: |
           pip install -q -r requirements-e2e.txt
+          python -m playwright install --with-deps chromium
           pytest e2e -v --junitxml=e2e-results.xml
 
       - name: Load test (k6)
@@ -203,7 +205,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, scheduler, runner, browser-runner, notifier]
+        service: [api, scheduler, runner, browser-runner, notifier, web]
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/pulse-${{ matrix.service }}
     steps:
