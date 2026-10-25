@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor · Pulse</title>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="monitor.js"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">Pulse</a>
+    <nav aria-label="Pages"><a href="/">Monitors</a><a href="/status">Status page</a></nav>
+  </header>
+  <main>
+    <p class="banner" id="offline" role="alert" hidden></p>
+
+    <section id="head">
+      <h1 id="title">Loading…</h1>
+    </section>
+
+    <section class="summary" id="summary" aria-label="Summary"></section>
+
+    <section>
+      <h2>Incidents</h2>
+      <ul class="incidents" id="incidents"></ul>
+      <p class="empty" id="no-incidents" hidden>No incidents for this monitor.</p>
+    </section>
+
+    <section>
+      <h2>Recent checks</h2>
+      <div class="table-wrap">
+        <table id="checks">
+          <thead>
+            <tr><th>When</th><th>Result</th><th class="num">Status</th><th class="num">Time</th><th>Error</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="no-checks" hidden>No checks yet. The first one runs within a minute.</p>
+    </section>
+  </main>
+</body>
+</html>

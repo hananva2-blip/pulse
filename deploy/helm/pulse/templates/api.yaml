@@ -104,25 +104,3 @@ spec:
             / sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",
               pod=~"{{ $name }}-{{ "{{args.canary-hash}}" }}-.*"}[1m]))
 {{- end }}
-{{- if .Values.ingress.enabled }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $name }}
-  labels: {{- include "pulse.labels" . | nindent 4 }}
-spec:
-  ingressClassName: {{ .Values.ingress.className }}
-  rules:
-    - {{- with .Values.ingress.host }}
-      host: {{ . }}
-      {{- end }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $name }}
-                port: { name: http }
-{{- end }}
