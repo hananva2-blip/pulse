@@ -1,0 +1,33 @@
+# Pulse on the single free-tier node of infra/aws (t3.micro, 1 GB RAM + 2 GB swap).
+# Layered on values.yaml: helm upgrade --install pulse deploy/helm/pulse -f deploy/helm/pulse/values-aws.yaml
+# Only the core pipeline fits: no Argo Rollouts, KEDA, Prometheus stack or Chromium on 1 GB.
+
+api:
+  replicas: 1
+  canary:
+    enabled: false
+
+runner:
+  replicas: 1
+  autoscaling:
+    enabled: false
+
+# Chromium alone asks for 384Mi; browser monitors stay on the local cluster
+browserRunner:
+  enabled: false
+
+web:
+  replicas: 1
+
+# No Prometheus Operator and no Tempo on this node
+monitoring:
+  enabled: false
+tracing:
+  endpoint: ""
+
+testTarget:
+  enabled: false
+
+postgres:
+  # Never committed: pass it at install time, e.g. --set postgres.password="$PULSE_DB_PASSWORD"
+  password: ""
