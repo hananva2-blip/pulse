@@ -109,7 +109,7 @@ jobs:
 
       - name: Build the images and load them into kind
         run: |
-          for s in api scheduler runner browser-runner; do
+          for s in api scheduler runner browser-runner notifier; do
             docker build -q -t ghcr.io/${{ github.repository_owner }}/pulse-$s:pr services/$s
             kind load docker-image ghcr.io/${{ github.repository_owner }}/pulse-$s:pr --name pulse
           done
@@ -203,7 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, scheduler, runner, browser-runner]
+        service: [api, scheduler, runner, browser-runner, notifier]
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/pulse-${{ matrix.service }}
     steps:

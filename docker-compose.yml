@@ -55,5 +55,15 @@ services:
       api: { condition: service_healthy }
       nats: { condition: service_healthy }
 
+  # Logs the incident messages; export TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to send them to Telegram
+  notifier:
+    build: services/notifier
+    environment:
+      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    depends_on:
+      api: { condition: service_healthy }
+
 volumes:
   pgdata:
