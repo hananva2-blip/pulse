@@ -39,6 +39,15 @@ runner:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 192Mi }
 
+notifier:
+  # Sends Telegram messages when incidents open and resolve. More than one is safe (row locks).
+  replicas: 1
+  # Secret with the keys bot-token and chat-id; it is never committed to Git
+  telegramSecret: pulse-telegram
+  resources:
+    requests: { cpu: 10m, memory: 48Mi }
+    limits: { cpu: 100m, memory: 96Mi }
+
 browserRunner:
   # Runs browser monitors in headless Chromium (Playwright)
   enabled: true
