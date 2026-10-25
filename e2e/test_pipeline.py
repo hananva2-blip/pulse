@@ -113,3 +113,26 @@ def test_browser_monitor_failure_keeps_a_screenshot(api, monitor):
     assert screenshot.status == 200
     assert screenshot.headers["content-type"] == "image/jpeg"
     assert screenshot.body()[:2] == b"\xff\xd8"
+
+
+def open_incident(api, monitor_id, timeout=60):
+    """Wait until the monitor has an open incident, and return it."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        incidents = api.get("/api/incidents", params={"status": "open"}).json()
+        mine = [incident for incident in incidents if incident["monitor_id"] == monitor_id]
+        if mine:
+            return mine[0]
+        time.sleep(1)
+    pytest.fail(f"No incident opened for monitor {monitor_id} within {timeout}s")
+
+
+def test_two_failures_in_a_row_open_an_incident(api, monitor):
+    created = monitor("/status/500", failures_to_alert=2)
+
+    incident = open_incident(api, created["id"])
+
+    assert incident["cause"] == "Expected 200, got 500"
+    assert incident["resolved_at"] is None
+    checks = api.get(f"/api/monitors/{created['id']}/checks").json()
+    assert len(checks) >= 2 and not any(check["ok"] for check in checks)

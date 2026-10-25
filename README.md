@@ -20,6 +20,8 @@ flowchart LR
 | `api` | Monitor CRUD, check history, 24h uptime and p95 latency (computed in SQL). Owns the schema. |
 | `scheduler` | Every second, claims due monitors (`FOR UPDATE SKIP LOCKED`) and publishes one job per check. |
 | `runner` | Pulls jobs, runs the HTTP check, stores the result, then acks. Scale it horizontally. |
+| `browser-runner` | Runs browser monitors in headless Chromium (Playwright); keeps a screenshot when a step fails. |
+| `notifier` | Sends a Telegram message when an incident opens and when it is resolved. |
 
 ### Design choices
 
@@ -63,8 +65,8 @@ and runners stop gracefully on SIGTERM.
 To try local code before CI has built it, build `:dev` images and import them:
 
 ```bash
-for s in api scheduler runner browser-runner; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
-k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner,browser-runner}:dev
+for s in api scheduler runner browser-runner notifier; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
+k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner,browser-runner,notifier}:dev
 helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --set image.tag=dev --wait
 ```
 
@@ -175,6 +177,31 @@ PULSE_URL=http://localhost:8880 TEST_TARGET=http://pulse-httpbin.pulse pytest e2
 docker run --rm -i -e PULSE_URL=http://host.docker.internal:8880 grafana/k6:1.3.0 run - < load/api-smoke.js
 ```
 
+## Incidents and Telegram alerts
+
+An incident opens when a monitor fails `failures_to_alert` checks in a row (default 2, so a single
+blip stays quiet), and the next good check resolves it. `GET /api/incidents?status=open` lists them.
+
+- **The decision is a Postgres trigger on `checks`.** It runs in the same transaction as the check
+  insert, so both runners get it without sharing code, and a unique partial index allows only one
+  open incident per monitor.
+- **The incidents table is the outbox.** The notifier polls for incidents whose message was not
+  sent yet, sends it, then marks it. A failed send is retried on the next poll; a crash between
+  sending and marking can send a message twice, never zero times.
+- **Without a token the notifier only logs the messages**, so CI and kind need no secrets.
+
+To get the messages on Telegram, create a bot with [@BotFather](https://t.me/BotFather), send it a
+message, find your chat id in `https://api.telegram.org/bot<token>/getUpdates`, then:
+
+```bash
+kubectl -n pulse create secret generic pulse-telegram \
+  --from-literal=bot-token=<token> --from-literal=chat-id=<chat id>
+kubectl -n pulse rollout restart deployment pulse-notifier
+```
+
+The token lives only in that Secret, never in Git. The notifier never logs it: httpx request logs are
+off, and send errors are logged by type and status code only, since their text contains the URL.
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -194,4 +221,5 @@ pytest
 4. ~~Argo CD GitOps with automatic image tag updates~~
 5. ~~Prometheus, Grafana, Loki, Tempo: metrics, logs, traces across the queue, alerts, dashboard~~
 6. ~~KEDA autoscaling, Argo Rollouts canary with automatic rollback, quality gates on every PR~~
-7. Terraform (AWS), Playwright browser checks, alerts, dashboard, domain and HTTPS
+7. ~~Playwright browser checks~~, ~~incidents and Telegram alerts~~, dashboard and status page,
+   Terraform (AWS), domain and HTTPS
