@@ -71,7 +71,7 @@ def test_failed_browser_check_shows_its_screenshot(page, api, monitor):
 
     link = page.get_by_role("link", name="Screenshot").first
     expect(link).to_be_visible()
-    screenshot = page.request.get(link.get_attribute("href"))
+    screenshot = page.request.get(PULSE_URL + link.get_attribute("href"))
     assert screenshot.headers["content-type"] == "image/jpeg"
 
 
@@ -81,7 +81,7 @@ def test_status_page_shows_a_service_with_an_open_incident_as_down(page, api, mo
 
     page.goto(f"{PULSE_URL}/status")
 
-    service = page.get_by_role("listitem").filter(has_text=created["name"])
+    service = page.locator("#services li").filter(has_text=created["name"])
     expect(service).to_contain_text("Down", timeout=SLOW)
     expect(page.locator("#overall")).to_contain_text("down")
     # The public page never shows the monitored URLs
