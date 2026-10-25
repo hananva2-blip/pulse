@@ -22,6 +22,7 @@ flowchart LR
 | `runner` | Pulls jobs, runs the HTTP check, stores the result, then acks. Scale it horizontally. |
 | `browser-runner` | Runs browser monitors in headless Chromium (Playwright); keeps a screenshot when a step fails. |
 | `notifier` | Sends a Telegram message when an incident opens and when it is resolved. |
+| `web` | The dashboard, monitor pages and public status page (nginx); forwards `/api` to the API. |
 
 ### Design choices
 
@@ -65,8 +66,8 @@ and runners stop gracefully on SIGTERM.
 To try local code before CI has built it, build `:dev` images and import them:
 
 ```bash
-for s in api scheduler runner browser-runner notifier; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
-k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner,browser-runner,notifier}:dev
+for s in api scheduler runner browser-runner notifier web; do docker build -t ghcr.io/hananva2-blip/pulse-$s:dev services/$s; done
+k3d image import -c pulse ghcr.io/hananva2-blip/pulse-{api,scheduler,runner,browser-runner,notifier,web}:dev
 helm --kube-context k3d-pulse upgrade --install pulse deploy/helm/pulse -n pulse --set image.tag=dev --wait
 ```
 
@@ -202,6 +203,22 @@ kubectl -n pulse rollout restart deployment pulse-notifier
 The token lives only in that Secret, never in Git. The notifier never logs it: httpx request logs are
 off, and send errors are logged by type and status code only, since their text contains the URL.
 
+## Dashboard and status page
+
+`http://localhost:8880` on the k3d cluster (`http://localhost:8801` with docker compose):
+
+- **Monitors** (`/`): every monitor with its status, 24h uptime and p95, the open incidents, and a
+  form to add HTTP or browser monitors.
+- **Monitor** (`/monitor?id=…`): its incidents and recent checks, with the screenshot of each failed
+  browser check.
+- **Status page** (`/status`): the public view. A service shows as down only while it has an open
+  incident, so one failed check does not turn it red. URLs stay hidden.
+
+Plain HTML and JavaScript modules, no build step, served by unprivileged nginx with a read-only root
+filesystem. nginx also proxies `/api`, so the pages call the API on their own origin and need no CORS.
+Everything a user typed is added to the page as text, never as HTML, and a Content-Security-Policy
+allows scripts from the site itself only.
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -221,5 +238,5 @@ pytest
 4. ~~Argo CD GitOps with automatic image tag updates~~
 5. ~~Prometheus, Grafana, Loki, Tempo: metrics, logs, traces across the queue, alerts, dashboard~~
 6. ~~KEDA autoscaling, Argo Rollouts canary with automatic rollback, quality gates on every PR~~
-7. ~~Playwright browser checks~~, ~~incidents and Telegram alerts~~, dashboard and status page,
+7. ~~Playwright browser checks~~, ~~incidents and Telegram alerts~~, ~~dashboard and status page~~,
    Terraform (AWS), domain and HTTPS
