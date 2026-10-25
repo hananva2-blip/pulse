@@ -106,6 +106,8 @@ class MonitorIn(BaseModel):
     interval_seconds: int = Field(default=60, ge=10, le=3600)
     timeout_seconds: int = Field(default=10, ge=1, le=30)
     expected_status: int = Field(default=200, ge=100, le=599)
+    # Failed checks in a row before an incident opens; more than 1 ignores a single blip
+    failures_to_alert: int = Field(default=2, ge=1, le=10)
 
     @model_validator(mode="after")
     def steps_only_for_browser(self):
@@ -126,11 +128,13 @@ def create_monitor(monitor: MonitorIn):
     steps = Jsonb([step.model_dump(exclude_none=True) for step in monitor.steps])
     with pool.connection() as conn:
         return conn.execute(
-            """INSERT INTO monitors (name, url, kind, steps, interval_seconds, timeout_seconds, expected_status)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)
-               RETURNING id, name, url, kind, steps, interval_seconds, timeout_seconds, expected_status, enabled""",
-            (monitor.name, str(monitor.url), monitor.kind, steps,
-             monitor.interval_seconds, monitor.timeout_seconds, monitor.expected_status),
+            """INSERT INTO monitors (name, url, kind, steps, interval_seconds, timeout_seconds, expected_status,
+                                       failures_to_alert)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING id, name, url, kind, steps, interval_seconds, timeout_seconds, expected_status,
+                         failures_to_alert, enabled""",
+            (monitor.name, str(monitor.url), monitor.kind, steps, monitor.interval_seconds,
+             monitor.timeout_seconds, monitor.expected_status, monitor.failures_to_alert),
         ).fetchone()
 
 
@@ -167,6 +171,22 @@ def check_screenshot(check_id: int):
     if row is None or row["screenshot"] is None:
         raise HTTPException(status_code=404, detail="No screenshot for this check")
     return Response(content=bytes(row["screenshot"]), media_type="image/jpeg")
+
+
+INCIDENT_FILTERS = {"open": "WHERE i.resolved_at IS NULL", "resolved": "WHERE i.resolved_at IS NOT NULL", None: ""}
+
+
+@app.get("/api/incidents")
+def list_incidents(status: Literal["open", "resolved"] | None = None, limit: int = 50):
+    with pool.connection() as conn:
+        return conn.execute(
+            f"""SELECT i.id, i.monitor_id, m.name AS monitor_name, m.url, i.opened_at, i.resolved_at, i.cause,
+                       extract(epoch FROM coalesce(i.resolved_at, now()) - i.opened_at)::int AS duration_seconds
+                FROM incidents i JOIN monitors m ON m.id = i.monitor_id
+                {INCIDENT_FILTERS[status]}
+                ORDER BY i.opened_at DESC LIMIT %s""",
+            (min(limit, 500),),
+        ).fetchall()
 
 
 @app.delete("/api/monitors/{monitor_id}", status_code=204)
