@@ -219,6 +219,46 @@ filesystem. nginx also proxies `/api`, so the pages call the API on their own or
 Everything a user typed is added to the page as text, never as HTML, and a Content-Security-Policy
 allows scripts from the site itself only.
 
+## AWS (Terraform, free tier)
+
+`infra/aws` describes a home for Pulse on AWS that stays inside the free tier. CI checks it on every
+change (`fmt`, `validate`, `tflint`, and a Trivy misconfiguration gate) but never applies it: there
+are no AWS credentials in CI.
+
+| Resource | Why |
+|---|---|
+| One `t3.micro`, Ubuntu 24.04, single-node K3s | The free tier covers one micro instance all month. EKS is not free ($0.10/hour for the control plane). |
+| VPC with one public subnet and an internet gateway | No NAT gateway, which would cost about $32 a month |
+| Security group: ports 80 and 443 only | No SSH and no Kubernetes API from outside. A shell and port forwarding go through AWS Systems Manager. |
+| IAM role with `AmazonSSMManagedInstanceCore` only | The node can talk to SSM and nothing else |
+| gp3 disk, encrypted, 20 GB | The EBS free tier is 30 GB |
+| `cpu_credits = "standard"` | The t3 default, `unlimited`, bills CPU bursts; `standard` never costs extra |
+| IMDSv2 only, hop limit 1 | Pods cannot read the instance's credentials |
+| `ignore_changes = [ami]` | A new Ubuntu image does not replace the running node (a SkyWatch lesson) |
+| AWS Budgets: an email at 50% of $1 actual or 100% forecast | Any spend means something left the free tier |
+
+Variables are validated: only `t3.micro` or `t2.micro`, and a disk of 8–30 GB. Trivy's one open
+finding is MEDIUM: there are no VPC Flow Logs, which would cost CloudWatch storage.
+
+```bash
+cd infra/aws
+cp terraform.tfvars.example terraform.tfvars   # set budget_email
+terraform init && terraform plan
+terraform apply                                 # only after checking the account's free tier
+$(terraform output -raw kubernetes_api_tunnel)  # in another terminal: the K3s API on localhost:6443
+helm upgrade --install pulse ../../deploy/helm/pulse -n pulse --create-namespace \
+  -f ../../deploy/helm/pulse/values-aws.yaml --set postgres.password="$PULSE_DB_PASSWORD"
+terraform destroy
+```
+
+`values-aws.yaml` keeps only the core pipeline: no Argo Rollouts, KEDA, Prometheus stack or
+browser runner. The chart refuses to render without `postgres.password`, so the password is never
+committed.
+
+**Not verified yet.** No `apply` has run, because the AWS account is not activated. The memory budget is the
+risk: the pods request 480 Mi next to K3s on 1 GB plus 2 GB swap. In SkyWatch, a K3s v1.35 build ran
+out of memory on a t3.micro.
+
 ## Test
 
 Tests run against a real Postgres, in a separate `pulse_test` database.
@@ -239,4 +279,4 @@ pytest
 5. ~~Prometheus, Grafana, Loki, Tempo: metrics, logs, traces across the queue, alerts, dashboard~~
 6. ~~KEDA autoscaling, Argo Rollouts canary with automatic rollback, quality gates on every PR~~
 7. ~~Playwright browser checks~~, ~~incidents and Telegram alerts~~, ~~dashboard and status page~~,
-   Terraform (AWS), domain and HTTPS
+   ~~Terraform for AWS (code and CI checks)~~, domain and HTTPS

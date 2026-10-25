@@ -17,7 +17,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Images change only with the code: a change that touches nothing but deploy/ skips building and redeploying them
+  # Images change only with the code: a change that touches nothing but deploy/ or infra/ skips building and
+  # redeploying them
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -35,8 +36,8 @@ jobs:
             echo "images=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          outside_deploy=$(git diff --name-only "$BASE" "$GITHUB_SHA" | grep -v '^deploy/' || true)
-          echo "images=$([ -n "$outside_deploy" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          code_changes=$(git diff --name-only "$BASE" "$GITHUB_SHA" | grep -v -E '^(deploy|infra)/' || true)
+          echo "images=$([ -n "$code_changes" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   lint:
     runs-on: ubuntu-latest
@@ -87,6 +88,32 @@ jobs:
           docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary
           -schema-location default
           -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -
+      - name: Validate the AWS profile (single free-tier node)
+        run: >
+          helm template pulse deploy/helm/pulse -f deploy/helm/pulse/values-aws.yaml --set postgres.password=ci |
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary -
+
+  # AWS infrastructure: checked on every change, never applied by CI (no AWS credentials here)
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - name: tflint
+        run: docker run --rm -v "$PWD:/data" -w /data ghcr.io/terraform-linters/tflint:v0.65.0
+      # Quality gate: fail on HIGH or CRITICAL misconfigurations (open ports, unencrypted disks, IMDSv1, ...)
+      - name: Scan with Trivy
+        run: >
+          docker run --rm -v "$PWD:/src" aquasec/trivy:0.58.1 config
+          --exit-code 1 --severity HIGH,CRITICAL /src
 
   # Quality gates on every PR: deploy the PR's code to a throwaway cluster and test the whole system
   quality-gates:
