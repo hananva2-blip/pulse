@@ -1,0 +1,60 @@
+{{- if .Values.web.enabled }}
+{{- $name := printf "%s-web" .Release.Name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "pulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels: {{- include "pulse.selector" (list . "web") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "pulse.selector" (list . "web") | nindent 8 }}
+    spec:
+      # The nginx-unprivileged image runs as uid 101; fsGroup makes the emptyDirs writable for it
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: {{ include "pulse.image" (list . "web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: API_URL
+              value: http://{{ .Release.Name }}-api:80
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /nginx-health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /nginx-health, port: http }
+            periodSeconds: 20
+          securityContext: {{- include "pulse.containerSecurity" . | nindent 12 }}
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          # The root filesystem is read-only: nginx renders its config into conf.d and keeps temp files in /tmp
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: conf, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pulse.labels" . | nindent 4 }}
+    {{- include "pulse.selector" (list . "web") | nindent 4 }}
+spec:
+  selector: {{- include "pulse.selector" (list . "web") | nindent 4 }}
+  ports:
+    - { name: http, port: 80, targetPort: http }
+{{- end }}

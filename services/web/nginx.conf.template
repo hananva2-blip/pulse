@@ -1,0 +1,27 @@
+# Rendered at startup by the image's entrypoint: ${API_URL} comes from the environment
+server {
+    listen 8080;
+    server_tokens off;
+    root /usr/share/nginx/html;
+
+    # The pages call the API on the same origin, so the browser needs no CORS
+    location ~ ^/(api/|docs|openapi.json|healthz) {
+        proxy_pass ${API_URL};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location / {
+        try_files $uri $uri.html $uri/ =404;
+        add_header Cache-Control "no-cache";
+        add_header X-Content-Type-Options nosniff;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'";
+    }
+
+    # Kubernetes probes nginx itself, not the API behind it
+    location = /nginx-health {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+}

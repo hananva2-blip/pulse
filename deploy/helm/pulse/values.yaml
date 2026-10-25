@@ -64,6 +64,14 @@ browserRunner:
     requests: { cpu: 100m, memory: 384Mi }
     limits: { cpu: "1", memory: 1Gi }
 
+web:
+  # The dashboard and status page (nginx); it also forwards /api to the API
+  enabled: true
+  replicas: 2
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 200m, memory: 64Mi }
+
 ingress:
   enabled: true
   className: traefik

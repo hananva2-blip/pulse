@@ -65,5 +65,14 @@ services:
     depends_on:
       api: { condition: service_healthy }
 
+  # The dashboard and status page on http://localhost:8801; it forwards /api to the API
+  web:
+    build: services/web
+    environment:
+      API_URL: http://api:8000
+    ports: ["8801:8080"]
+    depends_on:
+      api: { condition: service_healthy }
+
 volumes:
   pgdata:
