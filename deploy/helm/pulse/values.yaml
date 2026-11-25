@@ -1,7 +1,7 @@
 image:
   registry: ghcr.io/hananva2-blip
   # Commit SHA of the images built by CI
-  tag: c7b2b3dfb0bde37911811a8a40a93ada04078325
+  tag: d286a53d8ebf16b5b6a0690542d5ead8aefd4f02
   pullPolicy: IfNotPresent
 
 api:
