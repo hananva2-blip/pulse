@@ -8,7 +8,9 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY --from=build /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels \
+# Take Debian security fixes that came out after the base image was built
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir /wheels/* && rm -rf /wheels \
  && useradd --create-home --uid 1000 pulse
 COPY scheduler.py .
 USER pulse

@@ -1,3 +1,4 @@
+import hmac
 import os
 import random
 from contextlib import asynccontextmanager
@@ -23,6 +24,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://pulse:pulse@localhost:543
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
 # Chaos switch for canary demos: this share of /api/ calls fails with 500. 0 in normal operation.
 FAULT_INJECTION_RATE = float(os.getenv("FAULT_INJECTION_RATE", "0"))
+# When set, creating or deleting monitors needs the header X-API-Key with this value.
+# Empty locally and in CI; the public AWS deployment always sets it.
+API_KEY = os.getenv("API_KEY", "")
 
 
 def setup_tracing(app):
@@ -76,6 +80,15 @@ app = FastAPI(title="Pulse API", lifespan=lifespan)
 async def inject_faults(request: Request, call_next):
     if FAULT_INJECTION_RATE and request.url.path.startswith("/api/") and random.random() < FAULT_INJECTION_RATE:
         return JSONResponse({"detail": "Injected fault"}, status_code=500)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    """Reading is public (dashboard, status page); changing monitors needs the API key."""
+    if API_KEY and request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
+        if not hmac.compare_digest(request.headers.get("X-API-Key", ""), API_KEY):
+            return JSONResponse({"detail": "A valid X-API-Key header is required"}, status_code=401)
     return await call_next(request)
 
 

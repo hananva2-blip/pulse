@@ -6,7 +6,9 @@ COPY requirements.txt .
 # PEP 668 protects a shared system Python; this image runs one process, so installing into it is fine
 # Install, then remove pip, virtualenv and their cache: the runtime needs none of them, and they
 # carry vendored copies of urllib3, certifi, msgpack and setuptools that Trivy flags as fixable
-RUN pip3 install --no-cache-dir --break-system-packages --upgrade setuptools filelock \
+# Take Ubuntu security fixes that came out after the base image was built
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* \
+ && pip3 install --no-cache-dir --break-system-packages --upgrade setuptools filelock \
  && pip3 install --no-cache-dir --break-system-packages -r requirements.txt \
  && pip3 uninstall -y --break-system-packages virtualenv pip \
  && rm -rf /root/.cache

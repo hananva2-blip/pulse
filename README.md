@@ -247,13 +247,15 @@ terraform init && terraform plan
 terraform apply                                 # only after checking the account's free tier
 $(terraform output -raw kubernetes_api_tunnel)  # in another terminal: the K3s API on localhost:6443
 helm upgrade --install pulse ../../deploy/helm/pulse -n pulse --create-namespace \
-  -f ../../deploy/helm/pulse/values-aws.yaml --set postgres.password="$PULSE_DB_PASSWORD"
+  -f ../../deploy/helm/pulse/values-aws.yaml --set postgres.password="$PULSE_DB_PASSWORD" \
+  --set api.apiKey="$PULSE_API_KEY"
 terraform destroy
 ```
 
 `values-aws.yaml` keeps only the core pipeline: no Argo Rollouts, KEDA, Prometheus stack or
-browser runner. The chart refuses to render without `postgres.password`, so the password is never
-committed.
+browser runner. The chart refuses to render without `postgres.password` and `api.apiKey`, so
+neither is ever committed. The dashboard and status page stay public to read, but adding or deleting
+a monitor needs the `X-API-Key` header; the dashboard asks for the key once and keeps it in the browser.
 
 **Not verified yet.** No `apply` has run, because the AWS account is not activated. The memory budget is the
 risk: the pods request 480 Mi next to K3s on 1 GB plus 2 GB swap. In SkyWatch, a K3s v1.35 build ran
