@@ -119,3 +119,14 @@ def test_screenshot_of_a_failed_check(client, db, monitor):
 
     flags = {c["id"]: c["has_screenshot"] for c in client.get(f"/api/monitors/{monitor['id']}/checks").json()}
     assert flags == {with_shot: True, without: False}
+
+
+def test_api_key_protects_changes_but_not_reads(client, monitor, monkeypatch):
+    monkeypatch.setattr(main, "API_KEY", "s3cret")
+    body = {"name": "Docs", "url": "https://example.com/docs"}
+
+    assert client.get("/api/monitors").status_code == 200
+    assert client.post("/api/monitors", json=body).status_code == 401
+    assert client.post("/api/monitors", json=body, headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.delete(f"/api/monitors/{monitor['id']}").status_code == 401
+    assert client.post("/api/monitors", json=body, headers={"X-API-Key": "s3cret"}).status_code == 201

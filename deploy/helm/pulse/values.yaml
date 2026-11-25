@@ -8,6 +8,8 @@ api:
   replicas: 2
   # Share of /api/ requests that fail on purpose (canary demos); 0 in normal operation
   faultInjectionRate: 0
+  # Empty: anyone can add or delete monitors (local cluster). Set it on any public deployment.
+  apiKey: ""
   canary:
     # Requires Argo Rollouts in the cluster; false renders a plain Deployment
     enabled: true

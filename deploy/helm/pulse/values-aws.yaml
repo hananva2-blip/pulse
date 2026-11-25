@@ -4,6 +4,10 @@
 
 api:
   replicas: 1
+  # The site is public: changing monitors needs this key. Never committed, pass it with
+  # --set api.apiKey="$PULSE_API_KEY" (the chart refuses to render without it, see api.yaml)
+  apiKey: ""
+  requireApiKey: true
   canary:
     enabled: false
 

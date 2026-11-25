@@ -11,8 +11,20 @@ export function el(tag, props = {}, ...children) {
   return node;
 }
 
+// Changing monitors needs the API key when the server sets one; it is asked once and kept in this browser
 export async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...options });
+  const headers = { "Content-Type": "application/json" };
+  const key = localStorage.getItem("pulseApiKey");
+  if (key) headers["X-API-Key"] = key;
+  let response = await fetch(`/api${path}`, { headers, ...options });
+  if (response.status === 401 && options.method) {
+    const entered = prompt("API key for changing monitors:");
+    if (entered) {
+      localStorage.setItem("pulseApiKey", entered);
+      response = await fetch(`/api${path}`, { headers: { ...headers, "X-API-Key": entered }, ...options });
+    }
+  }
+  if (response.status === 401) localStorage.removeItem("pulseApiKey");
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(describe(body.detail) || `The API answered ${response.status}`);
